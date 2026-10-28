@@ -2,10 +2,10 @@
 
 SurrealDB clients for the PostgreSQL and MySQL dialects, for serverless, edge and browser runtimes where TCP is unavailable.
 
-| Package | Dialect | RPC method | Docs |
-| --- | --- | --- | --- |
-| [`@surrealdb/pg`](packages/pg) | PostgreSQL | `pgsql` | [README](packages/pg/README.md) |
-| [`@surrealdb/mysql`](packages/mysql) | MySQL | `mysql` | [README](packages/mysql/README.md) |
+| Package                              | Dialect    | RPC method | Docs                               |
+| ------------------------------------ | ---------- | ---------- | ---------------------------------- |
+| [`@surrealdb/pg`](packages/pg)       | PostgreSQL | `pgsql`    | [README](packages/pg/README.md)    |
+| [`@surrealdb/mysql`](packages/mysql) | MySQL      | `mysql`    | [README](packages/mysql/README.md) |
 
 Both packages send SQL text to a SurrealDB instance over its RPC `pgsql` or `mysql` method, on HTTP for one-shot work and on a WebSocket for sessions. Each has a native API (a tagged template plus `query`, `batch` and `begin`) and a compatibility layer that lets existing ORMs and query builders run on top of it.
 
@@ -85,14 +85,14 @@ Each statement is one RPC call: `pgsql` or `mysql` with params `[statements, var
 
 The packages use two transports and choose between them by what the call needs:
 
-| | HTTP | WebSocket |
-| --- | --- | --- |
-| One-shot queries | yes | yes |
-| Atomic batch (`batch`) | yes | yes |
-| Interactive transactions (`begin`) | no | yes |
-| Live queries (`live`) | no | yes |
-| Session settings that last | no, sent with every call | yes, sent once per connection |
-| Cancel a running call | abort the request | `query_cancel` on abort or timeout |
+|                                    | HTTP                     | WebSocket                          |
+| ---------------------------------- | ------------------------ | ---------------------------------- |
+| One-shot queries                   | yes                      | yes                                |
+| Atomic batch (`batch`)             | yes                      | yes                                |
+| Interactive transactions (`begin`) | no                       | yes                                |
+| Live queries (`live`)              | no                       | yes                                |
+| Session settings that last         | no, sent with every call | yes, sent once per connection      |
+| Cancel a running call              | abort the request        | `query_cancel` on abort or timeout |
 
 With the default `transport: "auto"`, one-shot calls use HTTP (no handshake, the lowest latency from a cold isolate) and anything that needs a session opens a WebSocket. Pin `transport: "http"` or `transport: "ws"` to force one. A pinned `http` transport throws `UnsupportedOnTransportError` for `begin` and `live`.
 
@@ -100,25 +100,25 @@ With the default `transport: "auto"`, one-shot calls use HTTP (no handshake, the
 
 A connection string, or an options object, resolves to one configuration.
 
-| Form | Meaning |
-| --- | --- |
-| `surrealdb://user:pass@host/<namespace>/<database>` | Native form; namespace and database are in the path |
-| `surrealdb+http://`, `+https://`, `+ws://`, `+wss://` | Pins the scheme, and the transport for `+ws` and `+wss`; the port is kept |
+| Form                                                  | Meaning                                                                                     |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `surrealdb://user:pass@host/<namespace>/<database>`   | Native form; namespace and database are in the path                                         |
+| `surrealdb+http://`, `+https://`, `+ws://`, `+wss://` | Pins the scheme, and the transport for `+ws` and `+wss`; the port is kept                   |
 | `postgres://user:pass@host/<database>?namespace=<ns>` | Existing PostgreSQL URL (in `@surrealdb/pg`); the path is the database, the port is ignored |
-| `mysql://user:pass@host/<database>?namespace=<ns>` | Existing MySQL URL (in `@surrealdb/mysql`); same rules |
+| `mysql://user:pass@host/<database>?namespace=<ns>`    | Existing MySQL URL (in `@surrealdb/mysql`); same rules                                      |
 
 Hosts other than loopback use TLS by default. Query parameters `namespace` (or `ns`), `database` (or `db`), `transport` and `timeout` are read from the string.
 
 ```ts
 connect({
-  url: "surrealdb+wss://abc123.surrealdb.earth/prod/app",
-  auth: { username: "root", password: "..." }, // or { token } or () => token
-  transport: "auto", // "http" | "ws"
-  timeout: 15_000, // default per-request timeout in milliseconds
-  reconnect: { attempts: 5 }, // enabled, attempts, retryDelay, retryDelayMax, retryDelayMultiplier, retryDelayJitter
-  settings: { timezone: "UTC", application_name: "api" },
-  fetch, // injectable
-  WebSocket, // injectable; pass `ws` on Node versions without a global WebSocket
+    url: "surrealdb+wss://abc123.surrealdb.earth/prod/app",
+    auth: { username: "root", password: "..." }, // or { token } or () => token
+    transport: "auto", // "http" | "ws"
+    timeout: 15_000, // default per-request timeout in milliseconds
+    reconnect: { attempts: 5 }, // enabled, attempts, retryDelay, retryDelayMax, retryDelayMultiplier, retryDelayJitter
+    settings: { timezone: "UTC", application_name: "api" },
+    fetch, // injectable
+    WebSocket, // injectable; pass `ws` on Node versions without a global WebSocket
 });
 ```
 
@@ -160,12 +160,15 @@ Batch:
 ```ts
 // One request; every statement commits or none does
 const [created, count] = await sql.batch([
-  sql`INSERT INTO person (id, name) VALUES (${"a"}, ${"A"})`,
-  sql`SELECT count(*) FROM person`,
+    sql`INSERT INTO person (id, name) VALUES (${"a"}, ${"A"})`,
+    sql`SELECT count(*) FROM person`,
 ]);
 
 // Per-entry errors instead of throwing on the first one
-const settled = await sql.batch(["SELECT 1", "SELECT * FROM missing"], { atomic: false, throwOnError: false });
+const settled = await sql.batch(["SELECT 1", "SELECT * FROM missing"], {
+    atomic: false,
+    throwOnError: false,
+});
 ```
 
 Option precedence is: call options over batch or transaction options, over client options, over defaults.
@@ -174,11 +177,11 @@ Option precedence is: call options over batch or transaction options, over clien
 
 ```ts
 await sql.begin(
-  async (tx) => {
-    await tx`UPDATE account SET balance = balance - ${10} WHERE id = ${"x"}`;
-    await tx`UPDATE account SET balance = balance + ${10} WHERE id = ${"y"}`;
-  },
-  { isolation: "serializable", readOnly: false },
+    async (tx) => {
+        await tx`UPDATE account SET balance = balance - ${10} WHERE id = ${"x"}`;
+        await tx`UPDATE account SET balance = balance + ${10} WHERE id = ${"y"}`;
+    },
+    { isolation: "serializable", readOnly: false },
 );
 ```
 
@@ -190,33 +193,33 @@ await sql.begin(
 
 ```ts
 interface Result<Row> {
-  rows: Row[];
-  columns: Column[]; // name, type name, type id, nullable, table, column
-  command: string; // PostgreSQL tag such as "SELECT 3"; MySQL statement kind
-  rowCount: number;
-  time: string; // server time for the statement
-  transaction: "idle" | "active" | "failed";
-  results: Result<Row>[]; // every statement of the call, in order
-  // MySQL also has insertId and warnings
+    rows: Row[];
+    columns: Column[]; // name, type name, type id, nullable, table, column
+    command: string; // PostgreSQL tag such as "SELECT 3"; MySQL statement kind
+    rowCount: number;
+    time: string; // server time for the statement
+    transaction: "idle" | "active" | "failed";
+    results: Result<Row>[]; // every statement of the call, in order
+    // MySQL also has insertId and warnings
 }
 ```
 
 Values decode by the wire type of their column.
 
-| PostgreSQL type | JavaScript value |
-| --- | --- |
-| `bool` | `boolean` |
-| `int2`, `int4`, `float4`, `float8` | `number` |
-| `int8` | `number` within the safe range, `bigint` beyond it (`bigint: "auto" \| "always" \| "never"`) |
-| `numeric` | exact decimal `string` |
-| `text`, `varchar`, `char`, `name`, `uuid` | `string` |
-| `bytea` | `Uint8Array` |
-| `date`, `timestamp`, `timestamptz` | `Date` |
-| `time`, `timetz`, `interval` | `string` |
-| `json`, `jsonb` | parsed value |
-| arrays | arrays of the element decoding |
-| `record` | `RecordId` (`recordIds: "string"` keeps `table:key` text) |
-| `vector` | `Float32Array` (`vectors: "array"` keeps number arrays) |
+| PostgreSQL type                           | JavaScript value                                                                             |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `bool`                                    | `boolean`                                                                                    |
+| `int2`, `int4`, `float4`, `float8`        | `number`                                                                                     |
+| `int8`                                    | `number` within the safe range, `bigint` beyond it (`bigint: "auto" \| "always" \| "never"`) |
+| `numeric`                                 | exact decimal `string`                                                                       |
+| `text`, `varchar`, `char`, `name`, `uuid` | `string`                                                                                     |
+| `bytea`                                   | `Uint8Array`                                                                                 |
+| `date`, `timestamp`, `timestamptz`        | `Date`                                                                                       |
+| `time`, `timetz`, `interval`              | `string`                                                                                     |
+| `json`, `jsonb`                           | parsed value                                                                                 |
+| arrays                                    | arrays of the element decoding                                                               |
+| `record`                                  | `RecordId` (`recordIds: "string"` keeps `table:key` text)                                    |
+| `vector`                                  | `Float32Array` (`vectors: "array"` keeps number arrays)                                      |
 
 MySQL values follow the protocol type: integers are numbers (`BIGINT` is a string beyond the safe range), `DECIMAL` is an exact string, date types are `Date` unless `dateStrings`, `JSON` is parsed. This mapping is provisional until the instance documents its MySQL value encoding.
 
@@ -226,16 +229,16 @@ Override decoding per client or per call with `parse: { timestamptz: (raw) => ra
 
 Every error extends `SurrealSqlError`.
 
-| Error | When |
-| --- | --- |
-| `StatementError` | A statement failed; carries `sqlstate`, `errno`, `severity`, `position` and the partial `results` |
-| `CapabilityDeniedError` | The instance denies the method or the dialect route (`--deny-http postgres`, `--deny-rpc pgsql`) |
-| `AuthError` | Sign-in or token failure |
-| `RpcError` | The call itself failed; carries `code`, `kind`, `details`. A "Method not found" reply says the instance may predate the SQL RPC methods |
-| `ConnectionError`, `ConnectionLostError` | Network failure; `ConnectionLostError` has `inTransaction` |
-| `AbortError`, `TimeoutError` | The caller aborted, or the timeout elapsed |
-| `UnknownResponseError` | A non-RPC reply, such as from a proxy; keeps the status and the first 4096 characters of the body |
-| `UnsupportedOnTransportError` | `begin` or `live` on a transport pinned to HTTP |
+| Error                                    | When                                                                                                                                    |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `StatementError`                         | A statement failed; carries `sqlstate`, `errno`, `severity`, `position` and the partial `results`                                       |
+| `CapabilityDeniedError`                  | The instance denies the method or the dialect route (`--deny-http postgres`, `--deny-rpc pgsql`)                                        |
+| `AuthError`                              | Sign-in or token failure                                                                                                                |
+| `RpcError`                               | The call itself failed; carries `code`, `kind`, `details`. A "Method not found" reply says the instance may predate the SQL RPC methods |
+| `ConnectionError`, `ConnectionLostError` | Network failure; `ConnectionLostError` has `inTransaction`                                                                              |
+| `AbortError`, `TimeoutError`             | The caller aborted, or the timeout elapsed                                                                                              |
+| `UnknownResponseError`                   | A non-RPC reply, such as from a proxy; keeps the status and the first 4096 characters of the body                                       |
+| `UnsupportedOnTransportError`            | `begin` or `live` on a transport pinned to HTTP                                                                                         |
 
 The compatibility layers convert `StatementError` to the shape their ecosystem expects: a node-postgres `DatabaseError` with `code` (SQLSTATE), `severity`, `position`; a mysql2 error with `code`, `errno`, `sqlState`, `sqlMessage`.
 
@@ -250,15 +253,15 @@ The compatibility layers convert `StatementError` to the shape their ecosystem e
 
 ## ORM and driver compatibility
 
-| Tool | Package | Entry point |
-| --- | --- | --- |
-| node-postgres `Client` and `Pool` | `@surrealdb/pg` | `Client`, `Pool` |
-| Drizzle `node-postgres` | `@surrealdb/pg` | `drizzle({ client: pool as never })` |
-| Kysely `PostgresDialect` | `@surrealdb/pg` | `new PostgresDialect({ pool })` |
-| Prisma `@prisma/adapter-pg` | `@surrealdb/pg` | `new pg.Pool({ connectionString, Client })` |
-| mysql2 promise API | `@surrealdb/mysql` | `createPool`, `createConnection` |
-| Drizzle `mysql2` | `@surrealdb/mysql` | `drizzle(pool as never, { mode: "default" })` |
-| Kysely `MysqlDialect` | `@surrealdb/mysql/callback` | `new MysqlDialect({ pool })` |
+| Tool                              | Package                     | Entry point                                   |
+| --------------------------------- | --------------------------- | --------------------------------------------- |
+| node-postgres `Client` and `Pool` | `@surrealdb/pg`             | `Client`, `Pool`                              |
+| Drizzle `node-postgres`           | `@surrealdb/pg`             | `drizzle({ client: pool as never })`          |
+| Kysely `PostgresDialect`          | `@surrealdb/pg`             | `new PostgresDialect({ pool })`               |
+| Prisma `@prisma/adapter-pg`       | `@surrealdb/pg`             | `new pg.Pool({ connectionString, Client })`   |
+| mysql2 promise API                | `@surrealdb/mysql`          | `createPool`, `createConnection`              |
+| Drizzle `mysql2`                  | `@surrealdb/mysql`          | `drizzle(pool as never, { mode: "default" })` |
+| Kysely `MysqlDialect`             | `@surrealdb/mysql/callback` | `new MysqlDialect({ pool })`                  |
 
 ```ts
 // Drizzle on PostgreSQL
