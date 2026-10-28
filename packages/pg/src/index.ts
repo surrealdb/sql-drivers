@@ -16,3 +16,4 @@ export * from "./native";
 export { builtins } from "./oids";
 export { RecordId, recordId } from "./record-id";
 export { TypeOverrides, types } from "./text-types";
+export * from "./compat/index";

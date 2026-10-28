@@ -52,3 +52,15 @@ export function answering(answer: (method: string, params: unknown[]) => unknown
         else socket.reply({ id: m.id, result: answer(m.method, m.params) });
     };
 }
+
+/** A script which routes `pgsql` and the session methods to a handler which may be async. */
+export function routing(
+    handle: (method: string, params: unknown[]) => Promise<unknown>,
+): SocketScript {
+    return (socket, m) => {
+        handle(m.method, m.params).then(
+            (result) => socket.reply({ id: m.id, result }),
+            (error) => socket.reply({ id: m.id, error }),
+        );
+    };
+}
