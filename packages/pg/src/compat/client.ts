@@ -216,8 +216,9 @@ export class Client extends Emitter {
 
     connect(): Promise<void>;
     connect(callback: (error?: Error) => void): void;
-    connect(callback?: (error?: Error) => void): Promise<void> | void {
-        const promise = (this.#connecting ??= this.#open());
+    connect(callback?: (error?: Error) => void): Promise<void> | undefined {
+        this.#connecting ??= this.#open();
+        const promise = this.#connecting;
         if (!callback) return promise;
         promise.then(
             () => callback(),
@@ -255,11 +256,9 @@ export class Client extends Emitter {
     ): void;
     query(
         a: string | QueryConfig,
-        // biome-ignore lint/suspicious/noExplicitAny: the overloads above state the accepted forms
         b?: any,
-        // biome-ignore lint/suspicious/noExplicitAny: the overloads above state the accepted forms
         c?: any,
-    ): Promise<QueryResult | QueryResult[]> | void {
+    ): Promise<QueryResult | QueryResult[]> | undefined {
         const { config, values, callback } = normalizeQueryArgs(a, b, c);
         const promise = this.#query(config, values);
         if (!callback) return promise;
@@ -286,7 +285,7 @@ export class Client extends Emitter {
 
     end(): Promise<void>;
     end(callback: () => void): void;
-    end(callback?: () => void): Promise<void> | void {
+    end(callback?: () => void): Promise<void> | undefined {
         this._ending = true;
         this._queryable = false;
         const done = (async () => {

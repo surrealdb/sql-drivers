@@ -67,7 +67,10 @@ export class Statement<T = unknown> implements PromiseLike<T> {
 
     finally(onfinally?: (() => void) | null): Promise<T> {
         return this.then(
-            (v) => (onfinally?.(), v),
+            (v) => {
+                onfinally?.();
+                return v;
+            },
             (e) => {
                 onfinally?.();
                 throw e;

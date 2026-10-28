@@ -73,7 +73,7 @@ export class Pool extends Emitter {
             client?: PoolClient,
             done?: (e?: Error | boolean) => void,
         ) => void,
-    ): Promise<PoolClient> | void {
+    ): Promise<PoolClient> | undefined {
         const promise = this.#acquire();
         if (!callback) return promise;
         promise.then(
@@ -179,11 +179,9 @@ export class Pool extends Emitter {
     ): void;
     query(
         a: string | QueryConfig,
-        // biome-ignore lint/suspicious/noExplicitAny: the overloads above state the accepted forms
         b?: any,
-        // biome-ignore lint/suspicious/noExplicitAny: the overloads above state the accepted forms
         c?: any,
-    ): Promise<QueryResult | QueryResult[]> | void {
+    ): Promise<QueryResult | QueryResult[]> | undefined {
         const { config, values, callback } = normalizeQueryArgs(a, b, c);
         const run = async () => {
             const http = this.#httpClient();
@@ -205,7 +203,7 @@ export class Pool extends Emitter {
 
     end(): Promise<void>;
     end(callback: () => void): void;
-    end(callback?: () => void): Promise<void> | void {
+    end(callback?: () => void): Promise<void> | undefined {
         this.ending = true;
         const done = (async () => {
             for (const waiter of this.#waiting.splice(0))

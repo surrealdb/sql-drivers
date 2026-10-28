@@ -201,7 +201,7 @@ export class WsTransport implements Transport {
 
     #send(method: string, params: unknown[], options: CallOptions | undefined): Promise<unknown> {
         const socket = this.#socket;
-        if (!socket || socket.readyState !== 1) {
+        if (socket?.readyState !== 1) {
             return Promise.reject(new ConnectionLostError("The WebSocket is not open"));
         }
         const id = ++this.#id;
@@ -210,8 +210,14 @@ export class WsTransport implements Transport {
             const done = () => combined.cleanup();
             this.#pending.set(id, {
                 method,
-                resolve: (v) => (done(), resolve(v)),
-                reject: (e) => (done(), reject(e)),
+                resolve: (v) => {
+                    done();
+                    resolve(v);
+                },
+                reject: (e) => {
+                    done();
+                    reject(e);
+                },
             });
             combined.signal?.addEventListener(
                 "abort",
