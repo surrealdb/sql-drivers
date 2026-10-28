@@ -1,0 +1,45 @@
+{
+    "name": "@surrealdb/mysql",
+    "version": "0.1.0",
+    "type": "module",
+    "license": "Apache-2.0",
+    "description": "MySQL-dialect client for SurrealDB over HTTP and WebSocket, for serverless, edge and browsers.",
+    "homepage": "https://github.com/surrealdb/sql-drivers",
+    "keywords": [
+        "surrealdb",
+        "mysql",
+        "serverless",
+        "edge",
+        "drizzle",
+        "kysely"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/surrealdb/sql-drivers.git",
+        "directory": "packages/mysql"
+    },
+    "sideEffects": false,
+    "scripts": {
+        "build": "tsup && dts-bundle-generator -o dist/index.d.ts src/index.ts --no-check --external-inlines @surrealdb/sql-internal --export-referenced-types false && dts-bundle-generator -o dist/callback.d.ts src/compat/callback.ts --no-check --external-inlines @surrealdb/sql-internal --export-referenced-types false"
+    },
+    "types": "./dist/index.d.ts",
+    "main": "./dist/index.js",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        },
+        "./callback": {
+            "types": "./dist/callback.d.ts",
+            "import": "./dist/callback.js"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE"
+    ],
+    "devDependencies": {
+        "@surrealdb/sql-internal": "workspace:*"
+    }
+}

@@ -31,7 +31,7 @@ From the contract, the facts the design depends on:
 - `valueMode: "text"` returns every value in the dialect's text-protocol form, which is what lets the node-postgres layer reuse node-postgres-style parsers and stay faithful.
 - Live queries, variables, permissions and limits behave as for `query` on the same session.
 
-Consequence, and a correction to the original brief: HTTP is one-shot plus atomic batch only. Interactive transactions, live queries and session settings that persist are WebSocket-only. The design never promises an interactive transaction over HTTP. If the engine later adds a server-side transaction store, the transport interface already has a place for it (section 4.2).
+Consequence: HTTP is one-shot plus atomic batch only. Interactive transactions, live queries and session settings that persist are WebSocket-only. The design never offers an interactive transaction over HTTP; a pinned `http` transport throws `UnsupportedOnTransportError` for `begin`. If the engine later adds a server-side transaction store, the transport interface already has a place for it (section 4.2).
 
 ## 3. Package layout
 
@@ -59,17 +59,17 @@ One resolver turns a connection string and an options object into a `ResolvedCon
 
 ```ts
 interface ResolvedConfig {
-  endpoint: URL;                 // http(s) base for HTTP, ws(s) base for WebSocket
-  namespace?: string;
-  database?: string;
-  auth?: Credentials | TokenProvider;   // user/pass, token, or function returning either
-  transport: "auto" | "http" | "ws";
-  codec: "json" | "cbor";
-  timeoutMs?: number;            // default per request
-  reconnect: ReconnectOptions;
-  fetch?: typeof fetch;          // injectable, as for both reference drivers
-  WebSocket?: WebSocketConstructor;
-  headers?: Record<string, string>;
+    endpoint: URL; // http(s) base for HTTP, ws(s) base for WebSocket
+    namespace?: string;
+    database?: string;
+    auth?: Credentials | TokenProvider; // user/pass, token, or function returning either
+    transport: "auto" | "http" | "ws";
+    codec: "json" | "cbor";
+    timeoutMs?: number; // default per request
+    reconnect: ReconnectOptions;
+    fetch?: typeof fetch; // injectable, as for both reference drivers
+    WebSocket?: WebSocketConstructor;
+    headers?: Record<string, string>;
 }
 ```
 
@@ -85,18 +85,27 @@ Everything above the transport speaks this interface, so unit tests use a mock a
 
 ```ts
 interface Transport {
-  readonly kind: "http" | "ws";
-  readonly capabilities: { interactiveTransactions: boolean; live: boolean; persistentSettings: boolean };
-  call<T>(method: string, params: unknown[], opts?: CallOptions): Promise<T>;   // one RPC call
-  open(): Promise<void>;
-  close(): Promise<void>;
-  onEvent(handler: (event: TransportEvent) => void): () => void;                  // live notifications, disconnects
+    readonly kind: "http" | "ws";
+    readonly capabilities: {
+        interactiveTransactions: boolean;
+        live: boolean;
+        persistentSettings: boolean;
+    };
+    call<T>(method: string, params: unknown[], opts?: CallOptions): Promise<T>; // one RPC call
+    open(): Promise<void>;
+    close(): Promise<void>;
+    onEvent(handler: (event: TransportEvent) => void): () => void; // live notifications, disconnects
 }
-interface CallOptions { signal?: AbortSignal; timeoutMs?: number; txn?: string; requestId?: number }
+interface CallOptions {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    txn?: string;
+    requestId?: number;
+}
 ```
 
 - `HttpTransport`: `POST <endpoint>/rpc` with `Content-Type` and `Accept` for JSON or CBOR, `Surreal-NS` and `Surreal-DB` headers, `Authorization: Bearer <token>`. Stateless. One call per request. Cancellation is `AbortController`. `capabilities` are all false.
-- `WsTransport`: one WebSocket to `<endpoint>/rpc`, subprotocol `cbor` or none for JSON. Calls are multiplexed by `id`. Sends `use`, `signin` or `authenticate` on open, `query_cancel` on abort. Handles live notification frames (id-less messages) and routes them to the live dispatcher. `capabilities` are all true.
+- `WsTransport`: one WebSocket to `<endpoint>/rpc`, offering the `json` or `cbor` subprotocol explicitly. Calls are multiplexed by `id`. Sends `use`, `signin` or `authenticate` on open, `query_cancel` on abort. Handles live notification frames (id-less messages) and routes them to the live dispatcher. `capabilities` are all true.
 - Auto selection: `transport: "auto"` uses HTTP for `execute`, `query` and `batch` (lowest latency from a cold edge isolate, no handshake) and opens a WebSocket on first use of anything that needs a session (`begin`, `live`, a `Client` or `Pool` connection). A user can pin either.
 - A future `HttpSessionTransport` (stored HTTP sessions with an engine-held transaction) would implement the same interface with `interactiveTransactions: true`. Not built now.
 
@@ -105,7 +114,7 @@ interface CallOptions { signal?: AbortSignal; timeoutMs?: number; txn?: string; 
 Borrowed from the shape of `surrealdb` (JS SDK) auth: credentials are an object (`{username, password, namespace?, database?}` for system users, `{access, variables}` for record access, or a raw token string). The resolver also accepts `auth: () => string | Promise<string>` for rotating tokens, an idea shared with the reference drivers' per-request `authToken` functions.
 
 - Over WebSocket: `signin` once per connection, store the returned access token and refresh token if present, call `refresh` before expiry (decoded from the JWT `exp` claim, with 30 seconds of skew), re-`authenticate` after reconnect.
-- Over HTTP: send `Authorization: Bearer <token>` on each call. When credentials are user and password, sign in lazily with `signin` and cache the token until near expiry. One in-flight sign-in is shared by concurrent callers.
+- Over HTTP: when credentials are a token, send `Authorization: Bearer <token>` on each call. When credentials are user and password the default is HTTP Basic on each call, which costs no extra round trip (the cold-start path this transport exists for); `authMode: "token"` instead signs in once, caches the token until near expiry and shares one in-flight sign-in between concurrent callers.
 - A 401 or an `invalid auth` RPC error triggers exactly one forced re-sign-in and one retry of the call, never more, and never for a statement that may have partially run (writes in a failed transport are not retried blindly, see 4.5).
 
 ### 4.4 Sessions and transactions
@@ -126,6 +135,7 @@ SurrealSqlError (base)
   RpcError                     // non-statement RPC failure, carries code and kind
   StatementError               // statement-level, carries sqlstate, errno, position, severity
   AbortError / TimeoutError
+  UnsupportedOnTransportError  // begin or live requested on a pinned HTTP transport
   UnknownResponseError         // non-JSON or proxy reply, truncated body and headers kept
 ```
 
@@ -136,13 +146,13 @@ The last item borrows the idea of a distinct error for non-database replies from
 Both packages export the same shape. Dialect differences are noted inline.
 
 ```ts
-import { connect } from "@surrealdb/pg";            // or "@surrealdb/mysql"
+import { connect } from "@surrealdb/pg"; // or "@surrealdb/mysql"
 
 const sql = connect("postgres://root:root@abc123.surrealdb.earth/app?namespace=prod");
 
 const rows = await sql`SELECT * FROM person WHERE name = ${name} AND age > ${age}`;
-const res  = await sql.query("SELECT * FROM person WHERE id = $1", [id], { rowMode: "array" });
-const info = await sql.execute("UPDATE person SET age = $1 WHERE id = $2", [31, id]);   // rowsAffected, command
+const res = await sql.query("SELECT * FROM person WHERE id = $1", [id], { rowMode: "array" });
+const info = await sql.execute("UPDATE person SET age = $1 WHERE id = $2", [31, id]); // rowsAffected, command
 ```
 
 ### 5.1 Call forms (borrowed shape: Neon's `neon()`)
@@ -158,40 +168,40 @@ By default a tagged template resolves to rows. `Result` is the full form, select
 
 ```ts
 interface Result<Row = Record<string, unknown>> {
-  rows: Row[];                      // objects, or arrays with rowMode "array"
-  columns: Column[];                // name, type (dialect wire type), nullable, table, column
-  command: string;                  // tag, for example "SELECT 3", "INSERT 0 1"; mysql: statement kind
-  rowCount: number;                 // rows_affected
-  insertId?: bigint | number | null // mysql last_insert_id
-  warnings?: number                 // mysql
-  time: string;                     // server time for the statement
-  transaction: "idle" | "active" | "failed";
-  next?: Result;                    // multi-statement text: the following statement results
+    rows: Row[]; // objects, or arrays with rowMode "array"
+    columns: Column[]; // name, type (dialect wire type), nullable, table, column
+    command: string; // tag, for example "SELECT 3", "INSERT 0 1"; mysql: statement kind
+    rowCount: number; // rows_affected
+    insertId?: bigint | number | null; // mysql last_insert_id
+    warnings?: number; // mysql
+    time: string; // server time for the statement
+    transaction: "idle" | "active" | "failed";
+    results: Result[]; // every statement of the call, in order (this one is the last)
 }
 ```
 
-A multi-statement text resolves to the first `Result` with the others reachable as `results` (an array); `sql.query` with a multi-statement string resolves to `Result[]` only when `{multi: true}`, to keep the common case simple. An `error` in any statement entry throws `StatementError`, except in batch calls with `{throwOnError: false}`, where each entry reports `ok` and `error`.
+A text holding several statements always resolves to the `Result` of its last statement with `results: Result[]` listing every statement in order, so `rows` is what a caller usually wants and nothing is lost. `sql.batch` resolves to an array of `Result`, one per entry. An `error` in any statement entry throws `StatementError` (carrying the partial `results`), except in batch calls with `{throwOnError: false}`, where each entry reports `ok` and `error`.
 
 ### 5.3 Typed values
 
 Decoding is driven by `columns[].type`, using the value table in the contract:
 
-| Wire type (pg) | JS value, default | Notes |
-|---|---|---|
-| bool | boolean | |
-| int2, int4, float4, float8 | number | |
-| int8 | number within safe range, else bigint | option `bigint: "always" | "never" | "auto"` (default auto) |
-| numeric | string | exact decimal, never a lossy number; `decimal: "string" | "number"` option |
-| text, varchar, char, name | string | |
-| bytea | Uint8Array | base64 on JSON, byte string on CBOR |
-| uuid | string | |
-| date, time, timestamp, timestamptz, timetz | Date for timestamp, timestamptz, date; string for time, timetz | each overridable by a `parse` map keyed by type name |
-| interval | string (ISO 8601 duration) plus helper `parseInterval()` | an `Interval` object (months, days, nanoseconds) is exposed when the engine's new interval kind (ADR 0013) is present |
-| json | the parsed value | |
-| arrays | arrays of the element decoding | |
-| record | `RecordId` (table, key, `toString()` gives `table:key`) | `recordIds: "string"` returns strings |
-| vector | `Float32Array` | option `vectors: "array"` returns number arrays |
-| enum | string label | the type name carries the enum name once the engine reports it |
+| Wire type (pg)                             | JS value, default                                              | Notes                                                                                                                 |
+| ------------------------------------------ | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| bool                                       | boolean                                                        |                                                                                                                       |
+| int2, int4, float4, float8                 | number                                                         |                                                                                                                       |
+| int8                                       | number within safe range, else bigint                          | option `bigint: "always"                                                                                              | "never"          | "auto"` (default auto) |
+| numeric                                    | string                                                         | exact decimal, never a lossy number; `decimal: "string"                                                               | "number"` option |
+| text, varchar, char, name                  | string                                                         |                                                                                                                       |
+| bytea                                      | Uint8Array                                                     | base64 on JSON, byte string on CBOR                                                                                   |
+| uuid                                       | string                                                         |                                                                                                                       |
+| date, time, timestamp, timestamptz, timetz | Date for timestamp, timestamptz, date; string for time, timetz | each overridable by a `parse` map keyed by type name                                                                  |
+| interval                                   | string (ISO 8601 duration) plus helper `parseInterval()`       | an `Interval` object (months, days, nanoseconds) is exposed when the engine's new interval kind (ADR 0013) is present |
+| json                                       | the parsed value                                               |                                                                                                                       |
+| arrays                                     | arrays of the element decoding                                 |                                                                                                                       |
+| record                                     | `RecordId` (table, key, `toString()` gives `table:key`)        | `recordIds: "string"` returns strings                                                                                 |
+| vector                                     | `Float32Array`                                                 | option `vectors: "array"` returns number arrays                                                                       |
+| enum                                       | string label                                                   | the type name carries the enum name once the engine reports it                                                        |
 
 MySQL equivalents follow the `mysql_type` code: TINY/SHORT/LONG to number, LONGLONG to bigint when beyond the safe range, NEWDECIMAL to string, DATE/DATETIME/TIMESTAMP to Date unless `dateStrings`, JSON parsed, BLOB family to Uint8Array or string depending on the binary charset flag.
 
@@ -203,17 +213,20 @@ The same decoded types come out of HTTP and WebSocket, and out of JSON and CBOR.
 
 ```ts
 // One HTTP request, atomic. Borrowed shape: neon's sql.transaction([...]).
-const [a, b] = await sql.batch([
-  sql`INSERT INTO person (name) VALUES (${"a"})`,
-  sql`SELECT count(*) FROM person`,
-], { atomic: true });
+const [a, b] = await sql.batch(
+    [sql`INSERT INTO person (name) VALUES (${"a"})`, sql`SELECT count(*) FROM person`],
+    { atomic: true },
+);
 
 // Interactive, WebSocket only. Borrowed shape: PlanetScale's transaction(fn).
-const out = await sql.begin(async (tx) => {
-  await tx`UPDATE account SET balance = balance - ${n} WHERE id = ${from}`;
-  await tx`UPDATE account SET balance = balance + ${n} WHERE id = ${to}`;
-  return tx`SELECT * FROM account WHERE id IN (${from}, ${to})`;
-}, { isolation: "serializable", readOnly: false });
+const out = await sql.begin(
+    async (tx) => {
+        await tx`UPDATE account SET balance = balance - ${n} WHERE id = ${from}`;
+        await tx`UPDATE account SET balance = balance + ${n} WHERE id = ${to}`;
+        return tx`SELECT * FROM account WHERE id IN (${from}, ${to})`;
+    },
+    { isolation: "serializable", readOnly: false },
+);
 ```
 
 `batch` collects un-awaited lazy statements, sends them as one `[{text, vars}, ...]` call with `atomic`, and returns results in order. Calling `begin` while on a pure HTTP transport opens a WebSocket for the transaction's lifetime when `transport` is `auto`, and throws `CapabilityDeniedError`-style `UnsupportedOnTransportError` when pinned to `http`.
@@ -230,22 +243,22 @@ Options layering, documented and tested: per-call options beat batch or transact
 
 ```ts
 connect({
-  url: "surrealdb+wss://abc123.surrealdb.earth/prod/app",
-  auth: { username: "root", password: "..." },        // or { token } or () => token
-  transport: "auto",
-  codec: "json",
-  timeout: 15_000,
-  reconnect: { attempts: 5 },
-  fetch, WebSocket,                                   // injectable
-  settings: { timezone: "UTC", application_name: "api" },
+    url: "surrealdb+wss://abc123.surrealdb.earth/prod/app",
+    auth: { username: "root", password: "..." }, // or { token } or () => token
+    transport: "auto",
+    codec: "json",
+    timeout: 15_000,
+    reconnect: { attempts: 5 },
+    fetch,
+    WebSocket, // injectable
+    settings: { timezone: "UTC", application_name: "api" },
 });
 ```
 
 - SurrealDB Cloud and Earth: `https://<id>.surrealdb.earth` or the cloud host; the RPC path is `/rpc`. Namespace and database are part of the path in the connection string, or the `namespace` and `database` options.
 - Self-hosted: `surrealdb+http://localhost:8000/test/test`, or `postgres://root:root@localhost:8000/test?namespace=test` for an existing URL.
-- `settings` are sent as `SET` statements: once per connection over WebSocket, prepended to every call over HTTP (the contract says HTTP settings last for the request only). They are `sql_`-prefixed engine side; the driver does not need to know.
+- `settings` are sent as `SET` statements: once per connection over WebSocket, prepended to every call over HTTP because settings last for the request only there. The driver strips the results of the prepended statements before returning, so result indexes and `batch` destructuring never shift. A failing `SET` fails the whole call with a `StatementError` naming the setting; inside an `atomic` batch it aborts the batch before any user statement runs. They are `sql_`-prefixed engine side; the driver does not need to know.
 - Timeouts: a client default and per-call `timeout`; both combine with a caller `signal` into one `AbortSignal` (`AbortSignal.any` where available, a small polyfill otherwise). Over WebSocket an abort sends `query_cancel` for that request id; over HTTP it aborts the fetch.
-- Browser warning: like Neon's driver, a one-time console warning when a password or token appears in browser code, disabled with `disableWarningInBrowsers`.
 
 ## 7. SurrealDB-only extras
 
@@ -262,27 +275,27 @@ connect({
 
 From reading the adapter sources (drizzle-orm 0.45.4, @prisma/* 7.10.1, kysely 0.29.7, pg 8.23.1, mysql2 3.24.6):
 
-| Adapter | Supported | How | Verified by |
-|---|---|---|---|
-| drizzle `node-postgres` | yes | `@surrealdb/pg` `Client` or `Pool` passed as `client` | compat suite, drizzle queries, migrator, transactions |
-| drizzle `neon-http` | yes, stretch | `neon()`-shaped function from `@surrealdb/pg/neon-http` (`query`, `transaction`, `arrayMode`, `fullResults`) | compat suite (needs `@neondatabase/serverless` installed as drizzle imports its `types`) |
-| drizzle `neon-serverless` | no | hard `instanceof` on Neon's `Pool` | none |
-| drizzle `mysql2` | yes | `@surrealdb/mysql` promise pool, `query` and `execute` | compat suite |
-| drizzle `planetscale-serverless` | no | hard `instanceof` on PlanetScale's `Client` | none |
-| `@prisma/adapter-pg` | yes | `new pg.Pool({ Client })` from the real `pg` with our `Client`; needs real `pg` installed | compat suite, Prisma client queries and transactions |
-| `@prisma/adapter-neon`, `adapter-planetscale` | no | construct vendor classes themselves | none |
-| Prisma MySQL driver adapter | later | not yet read; candidate for a second pass | none |
-| kysely `PostgresDialect` | yes | `@surrealdb/pg` `Pool` | compat suite |
-| kysely `MysqlDialect` | yes | callback pool from `@surrealdb/mysql/callback` | compat suite |
-| node-postgres-typed code | yes | `Client`, `Pool`, `types`, `DatabaseError` exports | unit tests against the surface |
-| mysql2-typed code | partial | `createPool`, `createConnection`, `query`, `execute`, `getConnection`, transactions | unit tests |
+| Adapter                                       | Supported    | How                                                                                                          | Verified by                                                                              |
+| --------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| drizzle `node-postgres`                       | yes          | `@surrealdb/pg` `Client` or `Pool` passed as `client`                                                        | compat suite, drizzle queries, migrator, transactions                                    |
+| drizzle `neon-http`                           | yes, stretch | `neon()`-shaped function from `@surrealdb/pg/neon-http` (`query`, `transaction`, `arrayMode`, `fullResults`) | compat suite (needs `@neondatabase/serverless` installed as drizzle imports its `types`) |
+| drizzle `neon-serverless`                     | no           | hard `instanceof` on Neon's `Pool`                                                                           | none                                                                                     |
+| drizzle `mysql2`                              | yes          | `@surrealdb/mysql` promise pool, `query` and `execute`                                                       | compat suite                                                                             |
+| drizzle `planetscale-serverless`              | no           | hard `instanceof` on PlanetScale's `Client`                                                                  | none                                                                                     |
+| `@prisma/adapter-pg`                          | yes          | `new pg.Pool({ Client })` from the real `pg` with our `Client`; needs real `pg` installed                    | compat suite, Prisma client queries and transactions                                     |
+| `@prisma/adapter-neon`, `adapter-planetscale` | no           | construct vendor classes themselves                                                                          | none                                                                                     |
+| Prisma MySQL driver adapter                   | later        | not yet read; candidate for a second pass                                                                    | none                                                                                     |
+| kysely `PostgresDialect`                      | yes          | `@surrealdb/pg` `Pool`                                                                                       | compat suite                                                                             |
+| kysely `MysqlDialect`                         | yes          | callback pool from `@surrealdb/mysql/callback`                                                               | compat suite                                                                             |
+| node-postgres-typed code                      | yes          | `Client`, `Pool`, `types`, `DatabaseError` exports                                                           | unit tests against the surface                                                           |
+| mysql2-typed code                             | partial      | `createPool`, `createConnection`, `query`, `execute`, `getConnection`, transactions                          | unit tests                                                                               |
 
 "Verified" means the real adapter package code runs against a real SurrealDB server in the compat suite. Anything not yet run is marked as such in the package README.
 
 ### 8.2 `@surrealdb/pg` node-postgres surface
 
 ```ts
-export class Client extends EventEmitter {
+export class Client extends Emitter {
   constructor(config?: string | ClientConfig);
   connect(): Promise<void>; connect(cb: (err?: Error) => void): void;
   end(): Promise<void>; end(cb: () => void): void;
@@ -291,7 +304,7 @@ export class Client extends EventEmitter {
   query(...args: [...unknown[], cb]): void;
   readonly processID: number;
 }
-export class Pool extends EventEmitter { /* connect, query, end, on/removeListener, totalCount, idleCount, waitingCount, options */ }
+export class Pool extends Emitter { /* connect, query, end, on/removeListener, totalCount, idleCount, waitingCount, options */ }
 export const types: { getTypeParser, setTypeParser, builtins };
 export class DatabaseError extends Error { severity; code; detail; hint; position; ... }
 ```
@@ -301,6 +314,8 @@ Behaviour:
 - Every query sets `valueMode: "text"` and `rowMode: "array"` unless the caller asked for objects. Cells are passed through `config.types.getTypeParser(oid, "text")` when given, else the package's own parsers. This is what drizzle needs: it overrides parsers for timestamp, date and interval OIDs to return raw text, and a client that returned decoded values would break its mapping.
 - `fields[].dataTypeID` comes from `columns[].type.oid`. Prisma's pg adapter throws on an unknown OID below 16384, so the engine must report only built-in PostgreSQL OIDs there; the compat suite checks the OIDs seen.
 - `command` and `rowCount` come from `command.tag` and `command.rows_affected` (kysely needs `command` for affected-row counts).
+- No Node built-ins anywhere in the packages: `Client` and `Pool` use a small emitter from the internal package (`on`, `addListener`, `once`, `off`, `removeListener`, `emit`, `listenerCount`, `removeAllListeners`) instead of `node:events`, and bytea decodes to `Uint8Array`, not `Buffer`. The bundle smoke test fails on any `node:` import.
+- Class names survive the build (`keepNames` in tsup) because drizzle detects a pool by `constructor.name`; a built-output test asserts `Pool.name`.
 - `Client` exposes what `pg-pool` touches: `connect(cb)`, `end(cb)`, `_queryable`, `_ending`, `connection`, `'error'` and `'end'` events. This lets `new pg.Pool({ Client })` work with the real `pg`, which is the only way to satisfy Prisma's `instanceof pg.Pool`. `pg` is an optional peer dependency, used only by that path, never imported by this package.
 - `Pool` is our own class that does not need `pg`. Its constructor name contains "Pool" so drizzle's pool detection selects the transaction path that pins a connection.
 - A `PoolClient` is one WebSocket session; `release()` rolls back an open transaction before returning it. Prisma's `commit` and `rollback` only call `release()` and the engine sends `COMMIT` as SQL, so the pinned session keeps the transaction open across calls, which the contract's session model supports.
@@ -321,15 +336,15 @@ Behaviour:
 
 Matched to surrealdb.js where it makes sense, with deviations listed.
 
-| Concern | surrealdb.js | here |
-|---|---|---|
-| Package manager | bun workspaces, `bun ci` | bun workspaces (same) |
-| Lint and format | biome 2.x, 4-space indent, width 100 | biome 2.6.3, same settings |
-| Tests | `bun test` | vitest (it runs on Node, where the real `pg` and `mysql2` adapters must run; the brief asks for it) |
-| Build | rolldown plus dts-bundle-generator, turbo | tsup (esbuild plus dts), no turbo (two packages) |
-| Licence | Apache-2.0 | Apache-2.0 |
-| Changelog | none in repo, notes on GitHub releases | same: GitHub releases, no CHANGELOG files (the brief asked to match surrealdb.js) |
-| Publishing | `scripts/publish.ts` per package, JSR dry run in CI | same pattern later; JSR dry run in CI |
+| Concern         | surrealdb.js                                                                           | here                                                                                                   |
+| --------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Package manager | bun workspaces, `bun ci`                                                               | bun workspaces (same)                                                                                  |
+| Lint and format | biome 2.x, 4-space indent, width 100                                                   | biome 2.6.3, same settings                                                                             |
+| Tests           | `bun test`                                                                             | vitest (runs on Node, where the real `pg`, `mysql2`, drizzle, kysely and Prisma adapter code must run) |
+| Build           | rolldown plus dts-bundle-generator, turbo                                              | tsup (esbuild plus dts), no turbo (two packages)                                                       |
+| Licence         | Apache-2.0                                                                             | Apache-2.0                                                                                             |
+| Changelog       | none in repo, no changesets; notes on GitHub releases (checked with `gh release list`) | same: GitHub releases, no CHANGELOG files                                                              |
+| Publishing      | `scripts/publish.ts` per package, JSR dry run in CI                                    | same pattern later; JSR dry run in CI                                                                  |
 
 CI (GitHub Actions, actions pinned by SHA like surrealdb.js): `check` (biome, tsc), `unit` (vitest), `build` (tsup plus size-limit), and a separate `integration` job that downloads or builds a `surreal` binary and runs the integration and compat suites.
 
@@ -346,7 +361,7 @@ CI (GitHub Actions, actions pinned by SHA like surrealdb.js): `check` (biome, ts
 3. Compatibility (real adapters): drizzle (`node-postgres`, `mysql2`), kysely (both dialects), Prisma with `adapter-pg` over `pg.Pool({Client})`, and the `pg`/`mysql2` type surfaces. Each runs its own CRUD, migration and transaction path against the server. A matrix file in the repo records pass, fail and skipped per adapter and version; the README tables are generated from it.
 4. Size: `size-limit` budgets for the native entry of each package (target under 12 kB gzipped for the JSON, fetch-only native path, with the compat layer as a separate subpath import and its own budget) and a bundle smoke test for Workers (workerd via `wrangler` or Miniflare-compatible esbuild target) and a browser target (esbuild with `platform: browser`) that fails if any `node:` import appears.
 
-The integration binary is not built by this repo's CI by default; the job downloads a prebuilt artifact. Locally, `SURREAL_BIN` points to a binary built from the engine repo with `cargo build --locked --no-default-features --features storage-mem,http,scripting,postgres,mysql`. As of writing no existing binary on the development machine answers `pgsql` or `mysql` RPC.
+The integration binary is not built by this repo's CI by default; the job downloads a prebuilt artifact. Locally, `SURREAL_BIN` points to a binary built from the engine repo with `cargo build --locked --no-default-features --features storage-mem,http,scripting,postgres,mysql`; a binary built before the methods landed answers `Method not found`, and the integration suite fails fast with that message.
 
 ## 12. Credits for borrowed ideas
 
@@ -356,13 +371,31 @@ Ideas, not code:
 - From `@planetscale/database`: the `transaction(fn)` callback helper with automatic commit and rollback; a per-field `cast` hook with documented defaults and lossless 64-bit and decimal handling; the typed `ExecutedQuery` metadata idea (`time`, `size`); the distinct error type for non-database replies; and rejecting removed call forms loudly.
 - From the `surrealdb` JS SDK: authentication shapes, token refresh, reconnect option names and backoff, the idea of a thin engine interface over HTTP and WebSocket.
 
-## 13. Decisions needed from the user
+## 13. Implementation status
 
-1. Value codec dependency. Recommendation: JSON by default with zero runtime dependencies (the contract's value table makes JSON fully typed through `columns[].type`), CBOR optional through `@surrealdb/cbor` behind a separate entry. Do not depend on `@surrealdb/sqon` (which the current `surrealdb` SDK uses): it bundles text, flatbuffer and shaped codecs that cost edge bundle size. `@surrealdb/cbor` is published only as 2.0.0-alpha versions; `latest` is alpha.1 and the SDK pins alpha.4, so confirm which to pin.
-2. Neon and PlanetScale adapters. Recommendation: do not chase `drizzle neon-serverless`, `planetscale-serverless` or Prisma's Neon and PlanetScale adapters, which hard-code vendor classes. Support drizzle `neon-http` through a `neon()`-shaped function as a stretch goal only.
-3. HTTP transactions. Per the engine decision, HTTP is one-shot plus atomic batch. Confirm that the packages should not try to hide this (for example by silently opening a WebSocket) when `transport` is pinned to `http`; recommendation: throw `UnsupportedOnTransportError`.
-4. LISTEN and NOTIFY. Recommendation: no emulation in v0; native `live()` only, plus the explicit `listenLive` bridge. An engine-side mapping would be a separate piece of work.
-5. Dependencies beyond the allowed set, for tests only: `@prisma/client` plus the Prisma CLI, which fetches engines at install. Recommendation: allow, in an opt-in test project.
-6. Naming of the native entry point. Recommendation: `connect` (as `@planetscale/database` does), with `neon`-style call forms on the returned function. The alternative is a `neon`-like `sql` factory name.
-7. CHANGELOG. surrealdb.js keeps none in the repo; recommendation: follow that and use GitHub release notes.
-8. Repository creation: `gh repo create surrealdb/sql-drivers --private` is run by the user, since sessions cannot write externally.
+Built and covered by tests:
+
+- Internal core: config and connection string resolution, `Transport` with HTTP and WebSocket implementations, auth (Basic or one signin over HTTP, signin and re-signin before expiry over WebSocket), reconnect with backoff, abort and timeout, per-call `query_cancel`, the session runner with settings handling, lazy statements and templates, error hierarchy, emitter, the dialect-neutral client core.
+- `@surrealdb/pg` native API (`connect`, template, `query`, `execute`, `batch`, `begin`, `surql`, `live`, `describe`, `capabilities`, `withDatabase`, `raw`, `vector`), native and text value decoding, `RecordId`.
+- `@surrealdb/pg` node-postgres layer (`Client`, `Pool`, `types`, `DatabaseError`-shaped errors).
+- `@surrealdb/mysql` native API and the mysql2 promise and callback layers.
+
+Differences from the design above, to be closed or recorded:
+
+- The option for how user and password are presented over HTTP is `authMode: "basic" | "token"`.
+- Access tokens over WebSocket are renewed by signing in again with the stored credentials before expiry; the `refresh` RPC is not used.
+- CBOR (`codec: "cbor"` and the `/cbor` entry) is not built; JSON is the only codec.
+- Not built yet: `listenLive`, `sql.use()`, the `rid` template helper, interval helpers and the `Interval` type, the `neon()`-shaped function for drizzle `neon-http`, a `Cursor`, a browser warning when credentials appear in browser code.
+- Native MySQL value decoding is provisional until the instance documents MySQL value encodings.
+- `Pool.query()` and `Pool` clients in `@surrealdb/pg`, and the mysql2 pool, run one-shot queries over HTTP when the transport is `auto`.
+
+## 14. Decisions needed from the user
+
+1. Value codec dependency. Recommendation: JSON by default with zero runtime dependencies (the contract's value table makes JSON fully typed through `columns[].type`), CBOR optional through `@surrealdb/cbor` behind a separate entry. Do not depend on `@surrealdb/sqon` (which the current `surrealdb` SDK uses): it bundles text, flatbuffer and shaped codecs that cost edge bundle size. `@surrealdb/cbor` is published only as 2.0.0-alpha versions (`latest` is alpha.1, the SDK pins alpha.4); confirm which to pin.
+2. Neon and PlanetScale adapters. Recommendation: do not chase drizzle `neon-serverless`, drizzle `planetscale-serverless` or Prisma's Neon and PlanetScale adapters, which hard-code vendor classes. Support drizzle `neon-http` through a `neon()`-shaped function as a stretch goal only.
+3. LISTEN and NOTIFY. Recommendation: no emulation in v0; native `live()` only, plus the explicit `listenLive` bridge. An engine-side mapping is separate work.
+4. Package manager. The brief allows pnpm or npm workspaces; surrealdb.js uses bun. Recommendation: bun workspaces, matching surrealdb.js (the lockfile is `bun.lock`).
+5. `pg` as an optional peerDependency of `@surrealdb/pg`, used only by the `new pg.Pool({ Client })` path and never imported by the package. This is package metadata outside the allowed dependency set. Drizzle's node-postgres driver imports `pg` itself, so Drizzle and Prisma users must install `pg` regardless; the README says so.
+6. Naming of the native entry point. Recommendation: `connect` (as `@planetscale/database` does), with `neon`-style call forms on the returned function.
+
+Stated defaults, not open: HTTP is one-shot plus atomic batch and a pinned `http` transport throws on `begin`; changelog is GitHub releases only.

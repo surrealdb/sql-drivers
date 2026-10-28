@@ -1,0 +1,55 @@
+{
+    "name": "@surrealdb/pg",
+    "version": "0.1.0",
+    "type": "module",
+    "license": "Apache-2.0",
+    "description": "PostgreSQL-dialect client for SurrealDB over HTTP and WebSocket, for serverless, edge and browsers.",
+    "homepage": "https://github.com/surrealdb/sql-drivers",
+    "keywords": [
+        "surrealdb",
+        "postgres",
+        "postgresql",
+        "serverless",
+        "edge",
+        "drizzle",
+        "kysely",
+        "prisma"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/surrealdb/sql-drivers.git",
+        "directory": "packages/pg"
+    },
+    "sideEffects": false,
+    "scripts": {
+        "build": "tsup && dts-bundle-generator -o dist/index.d.ts src/index.ts --no-check --external-inlines @surrealdb/sql-internal --export-referenced-types false && dts-bundle-generator -o dist/compat.d.ts src/compat/index.ts --no-check --external-inlines @surrealdb/sql-internal --export-referenced-types false"
+    },
+    "types": "./dist/index.d.ts",
+    "main": "./dist/index.js",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        },
+        "./compat": {
+            "types": "./dist/compat.d.ts",
+            "import": "./dist/compat.js"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE"
+    ],
+    "peerDependencies": {
+        "pg": ">=8"
+    },
+    "peerDependenciesMeta": {
+        "pg": {
+            "optional": true
+        }
+    },
+    "devDependencies": {
+        "@surrealdb/sql-internal": "workspace:*"
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "name": "@surrealdb/sql-internal",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "license": "Apache-2.0",
+    "description": "Shared transport, session and decoding code for @surrealdb/pg and @surrealdb/mysql. Bundled, never published.",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts"
+}

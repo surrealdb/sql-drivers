@@ -5,7 +5,11 @@
         "enabled": true,
         "rules": {
             "recommended": true,
-            "suspicious": { "noThenProperty": "off", "noArrayIndexKey": "off" },
+            "suspicious": {
+                "noThenProperty": "off",
+                "noArrayIndexKey": "off",
+                "noExplicitAny": "off"
+            },
             "correctness": { "noUnusedImports": "warn" }
         }
     },
@@ -17,5 +21,5 @@
         "attributePosition": "multiline",
         "includes": ["**"]
     },
-    "files": { "includes": ["**", "!**/node_modules", "!**/dist/**", "!**/coverage/**"] }
+    "files": { "includes": ["**", "!**/node_modules", "!**/dist", "!**/coverage"] }
 }

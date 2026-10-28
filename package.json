@@ -1,6 +1,7 @@
 {
     "name": "sql-drivers",
     "private": true,
+    "type": "module",
     "workspaces": [
         "packages/*"
     ],
@@ -8,20 +9,57 @@
         "build": "bun run --filter './packages/*' build",
         "test": "vitest run --project unit",
         "test:integration": "vitest run --project integration",
-        "test:compat": "vitest run --project compat",
+        "test:compat": "bun run prisma:generate && vitest run --project compat",
         "size": "size-limit",
         "qc": "biome check .",
         "qa": "biome check . --write",
-        "qts": "tsc --noEmit"
+        "qts": "tsc --noEmit",
+        "prisma:generate": "cd packages/pg/test/compat/prisma && ../../../../../node_modules/.bin/prisma generate --schema schema.prisma"
     },
     "devDependencies": {
         "@biomejs/biome": "2.6.3",
+        "@electric-sql/pglite": "^0.5.12",
+        "@prisma/adapter-pg": "^7.10.1",
+        "@prisma/client": "^7.10.1",
+        "@size-limit/esbuild": "^14.3.0",
         "@size-limit/file": "14.3.0",
         "@types/node": "26.6.5",
+        "@types/pg": "^8.23.1",
+        "drizzle-orm": "^0.45.4",
+        "dts-bundle-generator": "^9.5.1",
+        "kysely": "^0.29.7",
+        "mysql2": "^3.24.6",
+        "pg": "^8.23.1",
+        "prisma": "7.10.1",
         "size-limit": "14.3.0",
         "tsup": "9.0.0",
         "typescript": "5.9.3",
         "vitest": "5.0.5"
     },
-    "packageManager": "bun@1.4.4"
+    "packageManager": "bun@1.4.4",
+    "size-limit": [
+        {
+            "name": "@surrealdb/pg native (tree-shaken connect)",
+            "path": "packages/pg/dist/index.js",
+            "import": "{ connect }",
+            "limit": "13 kB"
+        },
+        {
+            "name": "@surrealdb/pg node-postgres layer",
+            "path": "packages/pg/dist/index.js",
+            "import": "{ Client, Pool }",
+            "limit": "13 kB"
+        },
+        {
+            "name": "@surrealdb/mysql native (tree-shaken connect)",
+            "path": "packages/mysql/dist/index.js",
+            "import": "{ connect }",
+            "limit": "13 kB"
+        },
+        {
+            "name": "@surrealdb/mysql callback pool",
+            "path": "packages/mysql/dist/callback.js",
+            "limit": "13 kB"
+        }
+    ]
 }
