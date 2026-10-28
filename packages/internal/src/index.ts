@@ -1,5 +1,6 @@
 export * from "./abort";
 export * from "./auth";
+export * from "./client-core";
 export * from "./config";
 export * from "./contract";
 export * from "./emitter";

@@ -1,4 +1,4 @@
-import { StatementError } from "@surrealdb/sql-internal";
+import type { StatementError } from "@surrealdb/sql-internal";
 
 /** The error shape node-postgres raises for a server-side failure. */
 export class DatabaseError extends Error {

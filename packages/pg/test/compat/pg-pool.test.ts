@@ -1,6 +1,6 @@
+import { Client as SurrealClient } from "@surrealdb/pg";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Client as SurrealClient } from "@surrealdb/pg";
 import { startEngine } from "./harness";
 
 let ctx: Awaited<ReturnType<typeof startEngine>>;
@@ -20,14 +20,20 @@ describe("real pg.Pool with the SurrealDB Client", () => {
     });
 
     it("runs queries and parses types through pg-types by default", async () => {
-        const r = await pool.query("select 1::int4 as a, 't'::bool as b, '{1,2}'::int[] as c, now() as d, 9007199254740993::int8 as e");
+        const r = await pool.query(
+            "select 1::int4 as a, 't'::bool as b, '{1,2}'::int[] as c, now() as d, 9007199254740993::int8 as e",
+        );
         expect(r.rows[0]).toMatchObject({ a: 1, b: true, c: [1, 2], e: "9007199254740993" });
         expect(r.rows[0].d).toBeInstanceOf(Date);
         expect(r.fields.map((f) => f.dataTypeID)).toEqual([23, 16, 1007, 1184, 20]);
     });
 
     it("honours rowMode array and custom types", async () => {
-        const r = await pool.query({ text: "select 1::int4 as a, 'x'::text as b", rowMode: "array", types: { getTypeParser: () => (v: string) => `<${v}>` } as never });
+        const r = await pool.query({
+            text: "select 1::int4 as a, 'x'::text as b",
+            rowMode: "array",
+            types: { getTypeParser: () => (v: string) => `<${v}>` } as never,
+        });
         expect(r.rows).toEqual([["<1>", "<x>"]]);
     });
 

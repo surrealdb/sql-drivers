@@ -1,42 +1,32 @@
 import {
-    type BatchEntry,
-    buildVars,
-    type CallOptions,
-    CapabilityDeniedError,
+    type Capabilities,
+    type ClientCore,
     type ConnectOptions,
-    createTransports,
-    HttpTransport,
+    type Queryable as CoreQueryable,
+    type CoreQueryOptions,
+    createClientCore,
+    type DialectSpec,
+    type LiveMessage,
     Raw,
     type ResolvedConfig,
-    RpcError,
-    render,
-    resolveConfig,
-    SqlSession,
-    Statement,
+    type Statement,
     type StatementError,
     type StatementLike,
-    type Transport,
     toStatementError,
-    UnsupportedOnTransportError,
     type WireColumn,
     type WireResponse,
     type WireStatement,
     type WireType,
-    WsTransport,
 } from "@surrealdb/sql-internal";
 import { type DecodeOptions, decodeNative } from "./decode";
 import { oidByName } from "./oids";
 import { RecordId } from "./record-id";
 
+export type { Capabilities, LiveMessage };
+
 export interface PgConnectOptions extends ConnectOptions, DecodeOptions {}
 
-export interface QueryOptions extends DecodeOptions {
-    /** Rows as objects keyed by column name (default) or as arrays in column order */
-    rowMode?: "object" | "array";
-    signal?: AbortSignal;
-    /** Milliseconds; overrides the client default */
-    timeout?: number;
-}
+export interface QueryOptions extends DecodeOptions, CoreQueryOptions {}
 
 export interface Column {
     name: string;
@@ -72,19 +62,6 @@ export interface BatchOptions extends QueryOptions {
 export interface TransactionOptions extends QueryOptions {
     isolation?: "read committed" | "repeatable read" | "serializable";
     readOnly?: boolean;
-}
-
-export interface LiveMessage<T = unknown> {
-    action: "CREATE" | "UPDATE" | "DELETE" | "KILLED";
-    id: string;
-    result: T;
-}
-
-export interface Capabilities {
-    supported: boolean;
-    reason?: string;
-    version?: string;
-    transport: { interactiveTransactions: boolean; live: boolean };
 }
 
 function quoteSetting(value: string | number | boolean): string {
@@ -167,79 +144,32 @@ export function buildResults(
     return out;
 }
 
-function callOptions(options?: QueryOptions): CallOptions | undefined {
-    if (!options?.signal && options?.timeout === undefined) return undefined;
-    return { signal: options.signal, timeoutMs: options.timeout };
-}
-
-function wireOptions(options?: QueryOptions & { atomic?: boolean }) {
-    const out: { rowMode?: "array"; atomic?: boolean } = {};
-    if (options?.rowMode === "array") out.rowMode = "array";
-    if (options?.atomic) out.atomic = true;
-    return out;
-}
-
 const placeholder = (n: number) => `$${n}`;
 
-/** Queries which run on one session: the one-shot session or a dedicated transaction one. */
-export interface Queryable {
-    <Row = Record<string, unknown>>(
-        strings: TemplateStringsArray,
-        ...values: unknown[]
-    ): Statement<Row[]>;
-    query<Row = Record<string, unknown>>(
-        text: string,
-        params?: unknown[],
-        options?: QueryOptions,
-    ): Promise<Result<Row>>;
-    execute<Row = Record<string, unknown>>(
-        text: string,
-        params?: unknown[],
-        options?: QueryOptions,
-    ): Promise<Result<Row>>;
-}
+export type Queryable = CoreQueryable<Result, QueryOptions>;
 
-function makeQueryable(getSession: () => Promise<SqlSession>, defaults: QueryOptions): Queryable {
-    const run = async (text: string, params: readonly unknown[], options?: QueryOptions) => {
-        const merged = { ...defaults, ...options };
-        const session = await getSession();
-        const response = await session.run(
-            text,
-            buildVars(params),
-            wireOptions(merged),
-            callOptions(merged),
-        );
-        const built = buildResults(response, merged) as Result[];
-        const last = built[built.length - 1];
-        if (!last) {
-            return {
-                rows: [],
-                columns: [],
-                command: "",
-                rowCount: 0,
-                time: "",
-                transaction: response.transaction.status,
-                results: [],
-            } satisfies Result;
-        }
-        return last;
-    };
-
-    const tag = ((strings: TemplateStringsArray, ...values: unknown[]) => {
-        if (!Array.isArray(strings) || !("raw" in strings)) {
-            throw new TypeError(
-                "Use the tagged template form sql`...` or sql.query(text, params): calling sql(text, params) is not supported",
-            );
-        }
-        return Statement.template<Record<string, unknown>[]>(strings, values, async (statement) => {
-            const { text, params } = render(statement, placeholder);
-            return (await run(text, params)).rows;
-        });
-    }) as Queryable;
-    tag.query = (text, params = [], options) => run(text, params, options) as never;
-    tag.execute = tag.query;
-    return tag;
-}
+const spec: DialectSpec<Result, Column, QueryOptions> = {
+    method: "pgsql",
+    placeholder,
+    settingStatements,
+    beginStatement: ({ isolation, readOnly }) => {
+        const modes: string[] = [];
+        if (isolation) modes.push(`ISOLATION LEVEL ${isolation.toUpperCase()}`);
+        if (readOnly) modes.push("READ ONLY");
+        return `BEGIN ${modes.join(" ")}`.trim();
+    },
+    results: (response, options) => buildResults(response, options),
+    emptyResult: (transaction) => ({
+        rows: [],
+        columns: [],
+        command: "",
+        rowCount: 0,
+        time: "",
+        transaction,
+        results: [],
+    }),
+    column: toColumn,
+};
 
 export interface SqlClient extends Queryable {
     /** Splice trusted text into a template */
@@ -247,7 +177,7 @@ export interface SqlClient extends Queryable {
     /** Build a vector parameter */
     vector(values: ArrayLike<number>): number[];
     batch(
-        statements: readonly (Statement<unknown> | string | { text: string; params?: unknown[] })[],
+        statements: readonly (StatementLike | string | { text: string; params?: unknown[] })[],
         options?: BatchOptions,
     ): Promise<Result[]>;
     begin<T>(fn: (tx: Queryable) => Promise<T>, options?: TransactionOptions): Promise<T>;
@@ -271,239 +201,37 @@ export interface SqlClient extends Queryable {
  */
 export function connect(input: string | PgConnectOptions): SqlClient {
     const options: PgConnectOptions = typeof input === "string" ? { url: input } : input;
-    const config = resolveConfig(options, "pg");
-    const settings = settingStatements(config.settings);
-    const transports = createTransports(config);
-    const sessions = new Map<"http" | "ws", SqlSession>();
-    const decode: DecodeOptions = {
+    const defaults: QueryOptions = {
         bigint: options.bigint,
         recordIds: options.recordIds,
         vectors: options.vectors,
         parse: options.parse,
         cast: options.cast,
     };
-    const defaults: QueryOptions = { ...decode };
+    const core: ClientCore<Result, Column, QueryOptions> = createClientCore(
+        options,
+        spec,
+        "pg",
+        defaults,
+        (value, name) =>
+            value instanceof RecordId
+                ? { text: `type::record($${name})`, value: value.toString() }
+                : { text: `$${name}`, value },
+    );
 
-    const sessionOf = (kind: "http" | "ws"): SqlSession => {
-        let session = sessions.get(kind);
-        if (!session) {
-            const transport = transports[kind];
-            if (!transport) {
-                throw new UnsupportedOnTransportError(
-                    `The ${kind} transport is not available: the client is pinned to ${config.transport}`,
-                );
-            }
-            session = new SqlSession(transport, "pgsql", settings);
-            sessions.set(kind, session);
-        }
-        return session;
-    };
-    const oneShotKind = config.transport === "ws" ? "ws" : "http";
-    const oneShot = async () => sessionOf(oneShotKind);
-
-    const client = makeQueryable(oneShot, defaults) as SqlClient;
-
+    const client = core.query as unknown as SqlClient;
     client.raw = (text) => new Raw(text);
     client.vector = (values) => Array.from(values);
-
-    client.batch = async (statements, batchOptions = {}) => {
-        const entries: BatchEntry[] = statements.map((s) => {
-            if (s instanceof Statement) {
-                const { text, params } = render(s, placeholder);
-                return { text, vars: buildVars(params) };
-            }
-            if (typeof s === "string") return { text: s };
-            return { text: s.text, vars: buildVars(s.params ?? []) };
-        });
-        const merged = { ...defaults, ...batchOptions };
-        const session = await oneShot();
-        const response = await session.run(
-            entries,
-            undefined,
-            wireOptions({ ...merged, atomic: batchOptions.atomic ?? true }),
-            callOptions(merged),
-        );
-        const built = buildResults(response, merged);
-        return built as Result[];
-    };
-
-    client.begin = async (fn, txOptions = {}) => {
-        if (config.transport === "http") {
-            throw new UnsupportedOnTransportError(
-                "Interactive transactions need a WebSocket session; use batch() with atomic for HTTP",
-            );
-        }
-        const transport = new WsTransport(config);
-        const session = new SqlSession(transport, "pgsql", settings);
-        const merged = { ...defaults, ...txOptions };
-        const tx = makeQueryable(async () => session, merged);
-        const modes: string[] = [];
-        if (txOptions.isolation) modes.push(`ISOLATION LEVEL ${txOptions.isolation.toUpperCase()}`);
-        if (txOptions.readOnly) modes.push("READ ONLY");
-        try {
-            const begin = await session.run(
-                `BEGIN ${modes.join(" ")}`.trim(),
-                undefined,
-                undefined,
-                callOptions(merged),
-            );
-            buildResults(begin, {});
-            try {
-                const value = await fn(tx);
-                buildResults(
-                    await session.run("COMMIT", undefined, undefined, callOptions(merged)),
-                    {},
-                );
-                return value;
-            } catch (error) {
-                try {
-                    await session.run("ROLLBACK", undefined, undefined, undefined);
-                } catch {
-                    // The original error is the one that matters; a failed rollback must not mask it
-                }
-                throw error;
-            }
-        } finally {
-            session.dispose();
-            await transport.close();
-        }
-    };
-
-    client.surql = (strings, ...values) => {
-        if (!Array.isArray(strings) || !("raw" in strings)) {
-            throw new TypeError("Use the tagged template form sql.surql`...`");
-        }
-        return Statement.template<unknown[]>(strings, values, async (statement) => {
-            const vars: Record<string, unknown> = {};
-            let n = 0;
-            const text = renderSurql(statement, (value) => {
-                const name = `p${++n}`;
-                vars[name] = value instanceof RecordId ? value.toString() : value;
-                return value instanceof RecordId ? `type::record($${name})` : `$${name}`;
-            });
-            const transport = transports[oneShotKind] as Transport;
-            const replies = await transport.call<{ status: string; result: unknown }[]>("query", [
-                text,
-                vars,
-            ]);
-            const failed = replies.find((r) => r.status !== "OK");
-            if (failed) throw new RpcError(String(failed.result), -32000, "Query");
-            return replies.map((r) => r.result);
-        });
-    };
-
-    client.live = <T>(table: string, liveOptions: { diff?: boolean } = {}) => {
-        if (config.transport === "http" || !transports.ws) {
-            throw new UnsupportedOnTransportError("Live queries need a WebSocket connection");
-        }
-        const transport = transports.ws;
-        return {
-            async *[Symbol.asyncIterator]() {
-                const id = await transport.call<string>("live", [table, liveOptions.diff ?? false]);
-                const queue: LiveMessage<T>[] = [];
-                let wake: (() => void) | undefined;
-                let lost: unknown;
-                const off = transport.onEvent((event) => {
-                    if (event.type === "live") {
-                        const m = event.message as LiveMessage<T>;
-                        if (String(m.id) === String(id)) {
-                            queue.push(m);
-                            wake?.();
-                        }
-                    } else if (event.type === "disconnected") {
-                        lost = event.error;
-                        wake?.();
-                    }
-                });
-                try {
-                    for (;;) {
-                        const next = queue.shift();
-                        if (next) {
-                            yield next;
-                            continue;
-                        }
-                        if (lost) throw lost;
-                        await new Promise<void>((resolve) => {
-                            wake = resolve;
-                        });
-                        wake = undefined;
-                    }
-                } finally {
-                    off();
-                    try {
-                        await transport.call("kill", [id]);
-                    } catch {
-                        // The connection may already be gone, which also ends the live query
-                    }
-                }
-            },
-        };
-    };
-
-    client.describe = async (text) => {
-        const session = await oneShot();
-        const response = await session.run(text, undefined, { describe: true });
-        const first = response.statements[0];
-        if (first?.status === "ERR") throw toStatementError(first);
-        return {
-            columns: (first?.columns ?? []).map(toColumn),
-            params: (response.params ?? []).map((p) => p.type),
-        };
-    };
-
-    client.capabilities = async () => {
-        const kind = oneShotKind;
-        const transport = transports[kind] as Transport;
-        const caps = {
-            interactiveTransactions: config.transport !== "http" && !!transports.ws,
-            live: config.transport !== "http" && !!transports.ws,
-        };
-        let version: string | undefined;
-        try {
-            version = String(await transport.call("version", []));
-        } catch {
-            version = undefined;
-        }
-        try {
-            await transport.call("pgsql", [""]);
-            return { supported: true, version, transport: caps };
-        } catch (error) {
-            if (error instanceof CapabilityDeniedError || error instanceof RpcError) {
-                return { supported: false, reason: error.message, version, transport: caps };
-            }
-            throw error;
-        }
-    };
-
+    client.batch = (async (statements, batchOptions) =>
+        core.batch(statements, batchOptions)) as SqlClient["batch"];
+    client.begin = core.begin as SqlClient["begin"];
+    client.surql = core.surql;
+    client.live = core.live;
+    client.describe = core.describe as SqlClient["describe"];
+    client.capabilities = core.capabilities;
     client.withDatabase = (database, namespace) =>
-        connect({
-            ...options,
-            database,
-            namespace: namespace ?? options.namespace,
-            url: options.url,
-        });
-
-    client.close = async () => {
-        for (const s of sessions.values()) s.dispose();
-        sessions.clear();
-        await Promise.all([transports.http?.close(), transports.ws?.close()]);
-    };
-
-    Object.defineProperty(client, "config", { value: config, enumerable: true });
+        connect({ ...options, database, namespace: namespace ?? options.namespace });
+    client.close = core.close;
+    Object.defineProperty(client, "config", { value: core.config, enumerable: true });
     return client;
 }
-
-function renderSurql(statement: StatementLike, bind: (value: unknown) => string): string {
-    const source = statement.source;
-    if (source.kind === "direct") return source.text;
-    let text = source.strings[0] ?? "";
-    source.values.forEach((value, i) => {
-        if (value instanceof Raw) text += value.text;
-        else if (value instanceof Statement) text += renderSurql(value, bind);
-        else text += bind(value);
-        text += source.strings[i + 1] ?? "";
-    });
-    return text;
-}
-
-export { HttpTransport };

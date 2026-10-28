@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Client, connect, Pool } from "@surrealdb/pg";
 import { FakeSocket, routing } from "@surrealdb/sql-internal/testing";
-import { Client, Pool, connect } from "@surrealdb/pg";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PgliteEngine } from "../../../../test-support/pglite-engine";
 
 let engine: PgliteEngine;
@@ -10,15 +10,27 @@ beforeAll(async () => {
 });
 afterAll(() => engine.close());
 
-const opts = () => ({ connectionString: "postgres://root:root@localhost/app?ns=t", WebSocket: FakeSocket as never, fetch: engine.fetch });
+const opts = () => ({
+    connectionString: "postgres://root:root@localhost/app?ns=t",
+    WebSocket: FakeSocket as never,
+    fetch: engine.fetch,
+});
 
 describe("simulator smoke", () => {
     it("native over HTTP", async () => {
-        const sql = connect({ url: "postgres://root:root@localhost/app?ns=t", fetch: engine.fetch });
-        await sql.execute("create table smoke (id serial primary key, name text, at timestamptz default now())");
+        const sql = connect({
+            url: "postgres://root:root@localhost/app?ns=t",
+            fetch: engine.fetch,
+        });
+        await sql.execute(
+            "create table smoke (id serial primary key, name text, at timestamptz default now())",
+        );
         await sql`insert into smoke (name) values (${"a"}), (${"b"})`;
         const rows = await sql`select id, name from smoke order by id`;
-        expect(rows).toEqual([{ id: 1, name: "a" }, { id: 2, name: "b" }]);
+        expect(rows).toEqual([
+            { id: 1, name: "a" },
+            { id: 2, name: "b" },
+        ]);
     });
 
     it("compat Client over the WebSocket", async () => {

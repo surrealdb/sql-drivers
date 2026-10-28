@@ -1,12 +1,20 @@
 import { Emitter } from "@surrealdb/sql-internal";
-import { Client, type ClientConfig, type QueryConfig, type QueryResult, normalizeQueryArgs } from "./client";
+import {
+    Client,
+    type ClientConfig,
+    normalizeQueryArgs,
+    type QueryConfig,
+    type QueryResult,
+} from "./client";
 
 export interface PoolConfig extends ClientConfig {
     max?: number;
     idleTimeoutMillis?: number;
     connectionTimeoutMillis?: number;
     /** The client class to build, as in pg-pool */
-    Client?: new (config?: ClientConfig) => Client;
+    Client?: new (
+        config?: ClientConfig,
+    ) => Client;
     /** Run `pool.query()` calls over HTTP when the configuration allows it (default true) */
     poolQueryViaHttp?: boolean;
 }
@@ -52,8 +60,20 @@ export class Pool extends Emitter {
     }
 
     connect(): Promise<PoolClient>;
-    connect(callback: (error: Error | undefined, client?: PoolClient, done?: (e?: Error | boolean) => void) => void): void;
-    connect(callback?: (error: Error | undefined, client?: PoolClient, done?: (e?: Error | boolean) => void) => void): Promise<PoolClient> | void {
+    connect(
+        callback: (
+            error: Error | undefined,
+            client?: PoolClient,
+            done?: (e?: Error | boolean) => void,
+        ) => void,
+    ): void;
+    connect(
+        callback?: (
+            error: Error | undefined,
+            client?: PoolClient,
+            done?: (e?: Error | boolean) => void,
+        ) => void,
+    ): Promise<PoolClient> | void {
         const promise = this.#acquire();
         if (!callback) return promise;
         promise.then(
@@ -152,7 +172,11 @@ export class Pool extends Emitter {
 
     query(config: string | QueryConfig, values?: unknown[]): Promise<QueryResult | QueryResult[]>;
     query(config: string | QueryConfig, callback: Callback<QueryResult | QueryResult[]>): void;
-    query(config: string | QueryConfig, values: unknown[], callback: Callback<QueryResult | QueryResult[]>): void;
+    query(
+        config: string | QueryConfig,
+        values: unknown[],
+        callback: Callback<QueryResult | QueryResult[]>,
+    ): void;
     query(
         a: string | QueryConfig,
         // biome-ignore lint/suspicious/noExplicitAny: the overloads above state the accepted forms
@@ -184,7 +208,8 @@ export class Pool extends Emitter {
     end(callback?: () => void): Promise<void> | void {
         this.ending = true;
         const done = (async () => {
-            for (const waiter of this.#waiting.splice(0)) waiter.reject(new Error("Pool is ending"));
+            for (const waiter of this.#waiting.splice(0))
+                waiter.reject(new Error("Pool is ending"));
             for (const idle of this.#idle) if (idle.timer) clearTimeout(idle.timer);
             this.#idle = [];
             await Promise.all([...this.#clients].map((c) => c.end()));

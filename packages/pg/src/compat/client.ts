@@ -2,18 +2,18 @@ import {
     buildVars,
     Emitter,
     HttpTransport,
+    type ResolvedConfig,
     resolveConfig,
     SqlSession,
     StatementError,
-    type ResolvedConfig,
     type Transport,
     type WireColumn,
     type WireResponse,
     WsTransport,
 } from "@surrealdb/sql-internal";
+import { type PgConnectOptions, settingStatements } from "../native";
 import { oidByName } from "../oids";
-import { settingStatements, type PgConnectOptions } from "../native";
-import { type ParserFormat, type TextParser, types as defaultTypes } from "../text-types";
+import { types as defaultTypes, type ParserFormat, type TextParser } from "../text-types";
 import { DatabaseError } from "./errors";
 
 export interface TypesLike {
@@ -95,7 +95,11 @@ export function toConnectOptions(config: ClientConfig): PgConnectOptions {
 
 const COMMAND_RE = /^([A-Za-z]+)(?: (\d+))?(?: (\d+))?/;
 
-export function parseCommandTag(tag: string): { command: string; rowCount: number | null; oid: number | null } {
+export function parseCommandTag(tag: string): {
+    command: string;
+    rowCount: number | null;
+    oid: number | null;
+} {
     const m = COMMAND_RE.exec(tag);
     if (!m) return { command: tag, rowCount: null, oid: null };
     if (m[1] === "INSERT" && m[3] !== undefined) {
@@ -198,7 +202,8 @@ export class Client extends Emitter {
 
     constructor(config?: string | ClientConfig) {
         super();
-        const options: ClientConfig = typeof config === "string" ? { connectionString: config } : { ...config };
+        const options: ClientConfig =
+            typeof config === "string" ? { connectionString: config } : { ...config };
         this.#options = options;
         this.config = resolveConfig(toConnectOptions(options), "pg");
         this.connection = { stream: { destroy: () => void this.#transport?.close() } };
@@ -223,7 +228,9 @@ export class Client extends Emitter {
     async #open(): Promise<void> {
         if (this._ending) throw new Error("Client was closed and is not queryable");
         const transport: Transport =
-            this.config.transport === "http" ? new HttpTransport(this.config) : new WsTransport(this.config);
+            this.config.transport === "http"
+                ? new HttpTransport(this.config)
+                : new WsTransport(this.config);
         this.#transport = transport;
         this.#session = new SqlSession(transport, "pgsql", settingStatements(this.config.settings));
         transport.onEvent((event) => {
@@ -241,7 +248,11 @@ export class Client extends Emitter {
 
     query(config: string | QueryConfig, values?: unknown[]): Promise<QueryResult | QueryResult[]>;
     query(config: string | QueryConfig, callback: Callback<QueryResult | QueryResult[]>): void;
-    query(config: string | QueryConfig, values: unknown[], callback: Callback<QueryResult | QueryResult[]>): void;
+    query(
+        config: string | QueryConfig,
+        values: unknown[],
+        callback: Callback<QueryResult | QueryResult[]>,
+    ): void;
     query(
         a: string | QueryConfig,
         // biome-ignore lint/suspicious/noExplicitAny: the overloads above state the accepted forms
