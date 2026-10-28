@@ -22,7 +22,7 @@
     },
     "sideEffects": false,
     "scripts": {
-        "build": "tsup"
+        "build": "tsup && dts-bundle-generator -o dist/index.d.ts src/index.ts --no-check --external-inlines @surrealdb/sql-internal --export-referenced-types false && dts-bundle-generator -o dist/compat.d.ts src/compat/index.ts --no-check --external-inlines @surrealdb/sql-internal --export-referenced-types false"
     },
     "types": "./dist/index.d.ts",
     "main": "./dist/index.js",

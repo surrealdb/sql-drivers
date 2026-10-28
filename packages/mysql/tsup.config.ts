@@ -3,7 +3,7 @@ import { defineConfig } from "tsup";
 export default defineConfig({
     entry: { index: "src/index.ts", callback: "src/compat/callback.ts" },
     format: ["esm"],
-    dts: true,
+    dts: false,
     clean: true,
     target: "es2022",
     platform: "neutral",
