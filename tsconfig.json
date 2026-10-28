@@ -12,6 +12,7 @@
         "noFallthroughCasesInSwitch": true,
         "noImplicitOverride": true,
         "paths": {
+            "@surrealdb/sql-internal/testing": ["./packages/internal/src/testing"],
             "@surrealdb/sql-internal": ["./packages/internal/src"],
             "@surrealdb/pg": ["./packages/pg/src"],
             "@surrealdb/mysql": ["./packages/mysql/src"]
