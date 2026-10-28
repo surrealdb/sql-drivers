@@ -114,7 +114,7 @@ interface CallOptions {
 Borrowed from the shape of `surrealdb` (JS SDK) auth: credentials are an object (`{username, password, namespace?, database?}` for system users, `{access, variables}` for record access, or a raw token string). The resolver also accepts `auth: () => string | Promise<string>` for rotating tokens, an idea shared with the reference drivers' per-request `authToken` functions.
 
 - Over WebSocket: `signin` once per connection, store the returned access token and refresh token if present, call `refresh` before expiry (decoded from the JWT `exp` claim, with 30 seconds of skew), re-`authenticate` after reconnect.
-- Over HTTP: when credentials are a token, send `Authorization: Bearer <token>` on each call. When credentials are user and password the default is HTTP Basic on each call, which costs no extra round trip (the cold-start path this transport exists for); `auth.mode: "token"` instead signs in once, caches the token until near expiry and shares one in-flight sign-in between concurrent callers.
+- Over HTTP: when credentials are a token, send `Authorization: Bearer <token>` on each call. When credentials are user and password the default is HTTP Basic on each call, which costs no extra round trip (the cold-start path this transport exists for); `authMode: "token"` instead signs in once, caches the token until near expiry and shares one in-flight sign-in between concurrent callers.
 - A 401 or an `invalid auth` RPC error triggers exactly one forced re-sign-in and one retry of the call, never more, and never for a statement that may have partially run (writes in a failed transport are not retried blindly, see 4.5).
 
 ### 4.4 Sessions and transactions
