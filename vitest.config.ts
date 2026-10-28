@@ -7,6 +7,9 @@ const alias = {
     ),
     "@surrealdb/sql-internal": fileURLToPath(new URL("./packages/internal/src", import.meta.url)),
     "@surrealdb/pg": fileURLToPath(new URL("./packages/pg/src", import.meta.url)),
+    "@surrealdb/mysql/callback": fileURLToPath(
+        new URL("./packages/mysql/src/compat/callback.ts", import.meta.url),
+    ),
     "@surrealdb/mysql": fileURLToPath(new URL("./packages/mysql/src", import.meta.url)),
 };
 

@@ -15,6 +15,7 @@
             "@surrealdb/sql-internal/testing": ["./packages/internal/src/testing"],
             "@surrealdb/sql-internal": ["./packages/internal/src"],
             "@surrealdb/pg": ["./packages/pg/src"],
+            "@surrealdb/mysql/callback": ["./packages/mysql/src/compat/callback.ts"],
             "@surrealdb/mysql": ["./packages/mysql/src"]
         }
     },
