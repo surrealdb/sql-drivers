@@ -1,6 +1,7 @@
 {
     "name": "sql-drivers",
     "private": true,
+    "type": "module",
     "workspaces": [
         "packages/*"
     ],

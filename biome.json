@@ -17,5 +17,5 @@
         "attributePosition": "multiline",
         "includes": ["**"]
     },
-    "files": { "includes": ["**", "!**/node_modules", "!**/dist/**", "!**/coverage/**"] }
+    "files": { "includes": ["**", "!**/node_modules", "!**/dist", "!**/coverage"] }
 }
