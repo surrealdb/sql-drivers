@@ -92,6 +92,7 @@ export class HttpTransport implements Transport {
                 cache: "no-store",
             });
         } catch (error) {
+            combined.cleanup();
             if (combined.signal?.aborted) throw combined.reason();
             if (error instanceof AbortError) throw error;
             throw new ConnectionError(`Request to ${this.#config.httpEndpoint} failed`, {

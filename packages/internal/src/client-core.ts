@@ -263,17 +263,18 @@ export function createClientCore<Result, Column, Options extends CoreQueryOption
             const transport = ws;
             return {
                 async *[Symbol.asyncIterator]() {
-                    const id = await transport.call<string>("live", [
-                        table,
-                        liveOptions.diff ?? false,
-                    ]);
+                    const received: LiveMessage<T>[] = [];
+                    let id: string | undefined;
                     const queue: LiveMessage<T>[] = [];
                     let wake: (() => void) | undefined;
                     let lost: unknown;
+                    // Subscribe before registering, so notifications that arrive with or right
+                    // after the reply are kept until the query id is known
                     const off = transport.onEvent((event) => {
                         if (event.type === "live") {
                             const m = event.message as LiveMessage<T>;
-                            if (String(m.id) === String(id)) {
+                            if (id === undefined) received.push(m);
+                            else if (String(m.id) === String(id)) {
                                 queue.push(m);
                                 wake?.();
                             }
@@ -282,6 +283,16 @@ export function createClientCore<Result, Column, Options extends CoreQueryOption
                             wake?.();
                         }
                     });
+                    try {
+                        id = await transport.call<string>("live", [
+                            table,
+                            liveOptions.diff ?? false,
+                        ]);
+                    } catch (error) {
+                        off();
+                        throw error;
+                    }
+                    for (const m of received) if (String(m.id) === String(id)) queue.push(m);
                     try {
                         for (;;) {
                             const next = queue.shift();

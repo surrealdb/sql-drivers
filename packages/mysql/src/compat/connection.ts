@@ -191,7 +191,7 @@ function normalize(
  * types mysql2 returns, honouring `typeCast`.
  */
 export class Connection extends Emitter {
-    readonly config: ResolvedConfig;
+    declare readonly config: ResolvedConfig;
     readonly threadId: number = Math.floor(Math.random() * 2 ** 31);
     #options: ConnectionConfig;
     #transport: Transport | undefined;
@@ -202,7 +202,10 @@ export class Connection extends Emitter {
     constructor(config: ConnectionConfig | string) {
         super();
         this.#options = typeof config === "string" ? { uri: config } : { ...config };
-        this.config = resolveConfig(toConnectOptions(this.#options), "mysql");
+        Object.defineProperty(this, "config", {
+            value: resolveConfig(toConnectOptions(this.#options), "mysql"),
+            enumerable: false,
+        });
     }
 
     get inTransaction(): boolean {
@@ -246,11 +249,7 @@ export class Connection extends Emitter {
             options.timeout ? { timeoutMs: options.timeout } : undefined,
         );
         const decode: MysqlDecodeOptions = {
-            bigint: this.#options.bigNumberStrings
-                ? "string"
-                : this.#options.supportBigNumbers
-                  ? "auto"
-                  : "auto",
+            bigint: this.#options.bigNumberStrings ? "string" : "auto",
             dateStrings: options.dateStrings === true || this.#options.dateStrings === true,
             decimalNumbers: this.#options.decimalNumbers,
         };

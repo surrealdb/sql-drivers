@@ -188,7 +188,7 @@ export function normalizeQueryArgs(
  * type parsers of `config.types`, as node-postgres does.
  */
 export class Client extends Emitter {
-    readonly config: ResolvedConfig;
+    declare readonly config: ResolvedConfig;
     readonly processID: number = Math.floor(Math.random() * 2 ** 31);
     readonly secretKey = 0;
     readonly connection: { stream: { destroy(): void } };
@@ -205,7 +205,10 @@ export class Client extends Emitter {
         const options: ClientConfig =
             typeof config === "string" ? { connectionString: config } : { ...config };
         this.#options = options;
-        this.config = resolveConfig(toConnectOptions(options), "pg");
+        Object.defineProperty(this, "config", {
+            value: resolveConfig(toConnectOptions(options), "pg"),
+            enumerable: false,
+        });
         this.connection = { stream: { destroy: () => void this.#transport?.close() } };
     }
 

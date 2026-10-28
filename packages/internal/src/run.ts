@@ -26,6 +26,7 @@ export function toStatementError(statement: WireStatement): StatementError {
 export class SqlSession {
     status: TransactionStatus = "idle";
     #settingsApplied = false;
+    #applying: Promise<void> | undefined;
     #unsubscribe: () => void;
 
     constructor(
@@ -54,8 +55,10 @@ export class SqlSession {
     ): Promise<WireResponse> {
         const persistent = this.transport.capabilities.persistentSettings;
         if (this.settings.length > 0 && persistent && !this.#settingsApplied) {
-            await this.#send([...this.settings], undefined, undefined, call);
-            this.#settingsApplied = true;
+            this.#applying ??= this.#applySettings(call).finally(() => {
+                this.#applying = undefined;
+            });
+            await this.#applying;
         }
         const prefix = !persistent ? this.settings.length : 0;
         let body: string | readonly (string | BatchEntry)[] = statements;
@@ -77,6 +80,17 @@ export class SqlSession {
             response.statements = response.statements.slice(prefix);
         }
         return response;
+    }
+
+    async #applySettings(call: CallOptions | undefined): Promise<void> {
+        const response = await this.#send([...this.settings], undefined, undefined, call);
+        const failed = response.statements.find((s) => s.status === "ERR");
+        if (failed) {
+            const error = toStatementError(failed);
+            error.message = `A session setting failed: ${error.message}`;
+            throw error;
+        }
+        this.#settingsApplied = true;
     }
 
     async #send(

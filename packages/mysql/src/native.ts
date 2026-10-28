@@ -12,6 +12,7 @@ import {
     type Statement,
     type StatementError,
     type StatementLike,
+    settingStatements,
     toStatementError,
     type WireColumn,
     type WireResponse,
@@ -20,6 +21,7 @@ import {
 import { decodeMysql, type MysqlDecodeOptions, typeName } from "./types";
 
 export type { Capabilities, LiveMessage };
+export { settingStatements };
 
 export interface MysqlConnectOptions extends ConnectOptions, MysqlDecodeOptions {}
 
@@ -57,18 +59,6 @@ export interface BatchOptions extends QueryOptions {
 export interface TransactionOptions extends QueryOptions {
     isolation?: "read uncommitted" | "read committed" | "repeatable read" | "serializable";
     readOnly?: boolean;
-}
-
-function quote(value: string | number | boolean): string {
-    return `'${String(value).replaceAll("'", "''")}'`;
-}
-
-export function settingStatements(settings: Record<string, string | number | boolean>): string[] {
-    return Object.entries(settings).map(([name, value]) => {
-        if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name))
-            throw new TypeError(`Invalid setting name "${name}"`);
-        return `SET ${name} = ${quote(value)}`;
-    });
 }
 
 export function toColumn(c: WireColumn): Column {
@@ -203,6 +193,6 @@ export function connect(input: string | MysqlConnectOptions): SqlClient {
     client.withDatabase = (database, namespace) =>
         connect({ ...options, database, namespace: namespace ?? options.namespace });
     client.close = core.close;
-    Object.defineProperty(client, "config", { value: core.config, enumerable: true });
+    Object.defineProperty(client, "config", { value: core.config, enumerable: false });
     return client;
 }

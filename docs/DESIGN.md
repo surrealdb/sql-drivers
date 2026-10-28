@@ -259,7 +259,6 @@ connect({
 - Self-hosted: `surrealdb+http://localhost:8000/test/test`, or `postgres://root:root@localhost:8000/test?namespace=test` for an existing URL.
 - `settings` are sent as `SET` statements: once per connection over WebSocket, prepended to every call over HTTP because settings last for the request only there. The driver strips the results of the prepended statements before returning, so result indexes and `batch` destructuring never shift. A failing `SET` fails the whole call with a `StatementError` naming the setting; inside an `atomic` batch it aborts the batch before any user statement runs. They are `sql_`-prefixed engine side; the driver does not need to know.
 - Timeouts: a client default and per-call `timeout`; both combine with a caller `signal` into one `AbortSignal` (`AbortSignal.any` where available, a small polyfill otherwise). Over WebSocket an abort sends `query_cancel` for that request id; over HTTP it aborts the fetch.
-- Browser warning: like Neon's driver, a one-time console warning when a password or token appears in browser code, disabled with `disableWarningInBrowsers`.
 
 ## 7. SurrealDB-only extras
 
@@ -386,7 +385,7 @@ Differences from the design above, to be closed or recorded:
 - The option for how user and password are presented over HTTP is `authMode: "basic" | "token"`.
 - Access tokens over WebSocket are renewed by signing in again with the stored credentials before expiry; the `refresh` RPC is not used.
 - CBOR (`codec: "cbor"` and the `/cbor` entry) is not built; JSON is the only codec.
-- Not built yet: `listenLive`, `sql.use()`, the `rid` template helper, interval helpers and the `Interval` type, the `neon()`-shaped function for drizzle `neon-http`, a `Cursor`.
+- Not built yet: `listenLive`, `sql.use()`, the `rid` template helper, interval helpers and the `Interval` type, the `neon()`-shaped function for drizzle `neon-http`, a `Cursor`, a browser warning when credentials appear in browser code.
 - Native MySQL value decoding is provisional until the instance documents MySQL value encodings.
 - `Pool.query()` and `Pool` clients in `@surrealdb/pg`, and the mysql2 pool, run one-shot queries over HTTP when the transport is `auto`.
 

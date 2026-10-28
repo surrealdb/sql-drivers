@@ -12,6 +12,7 @@ import {
     type Statement,
     type StatementError,
     type StatementLike,
+    settingStatements,
     toStatementError,
     type WireColumn,
     type WireResponse,
@@ -23,6 +24,7 @@ import { oidByName } from "./oids";
 import { RecordId } from "./record-id";
 
 export type { Capabilities, LiveMessage };
+export { settingStatements };
 
 export interface PgConnectOptions extends ConnectOptions, DecodeOptions {}
 
@@ -62,20 +64,6 @@ export interface BatchOptions extends QueryOptions {
 export interface TransactionOptions extends QueryOptions {
     isolation?: "read committed" | "repeatable read" | "serializable";
     readOnly?: boolean;
-}
-
-function quoteSetting(value: string | number | boolean): string {
-    return `'${String(value).replaceAll("'", "''")}'`;
-}
-
-/** `SET` statements for the `settings` option. */
-export function settingStatements(settings: Record<string, string | number | boolean>): string[] {
-    return Object.entries(settings).map(([name, value]) => {
-        if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name)) {
-            throw new TypeError(`Invalid setting name "${name}"`);
-        }
-        return `SET ${name} = ${quoteSetting(value)}`;
-    });
 }
 
 export function toColumn(c: WireColumn): Column {
@@ -232,6 +220,6 @@ export function connect(input: string | PgConnectOptions): SqlClient {
     client.withDatabase = (database, namespace) =>
         connect({ ...options, database, namespace: namespace ?? options.namespace });
     client.close = core.close;
-    Object.defineProperty(client, "config", { value: core.config, enumerable: true });
+    Object.defineProperty(client, "config", { value: core.config, enumerable: false });
     return client;
 }

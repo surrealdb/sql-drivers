@@ -1,5 +1,5 @@
 import { combine } from "./abort";
-import { isUser, signinParams, tokenExpiry, tokenOf } from "./auth";
+import { signinParams, tokenExpiry, tokenOf } from "./auth";
 import { backoffDelay, type Credentials, type ResolvedConfig } from "./config";
 import { ConnectionError, ConnectionLostError } from "./errors";
 import { mapRpcError } from "./rpc-error";
@@ -158,7 +158,8 @@ export class WsTransport implements Transport {
         if (this.#expiry === undefined) return;
         if (this.#expiry - SKEW_SECONDS > Date.now() / 1000) return;
         const creds = this.#credentials;
-        if (creds && (isUser(creds) || "access" in creds)) await this.#authenticate();
+        const renewable = typeof this.#config.auth === "function" || (creds && !("token" in creds));
+        if (renewable) await this.#authenticate();
     }
 
     #onMessage(data: unknown): void {

@@ -58,7 +58,6 @@ export interface ConnectOptions {
     headers?: Record<string, string>;
     /** Dialect settings sent as `SET` statements, for example `{ timezone: "UTC" }` */
     settings?: Record<string, string | number | boolean>;
-    disableWarningInBrowsers?: boolean;
 }
 
 export interface ResolvedConfig {
@@ -76,7 +75,6 @@ export interface ResolvedConfig {
     WebSocket: WebSocketConstructor | undefined;
     headers: Record<string, string>;
     settings: Record<string, string | number | boolean>;
-    disableWarningInBrowsers: boolean;
 }
 
 export interface ParsedConnectionString {
@@ -208,7 +206,6 @@ export function resolveConfig(
         WebSocket: options.WebSocket,
         headers: options.headers ?? {},
         settings: options.settings ?? {},
-        disableWarningInBrowsers: options.disableWarningInBrowsers ?? false,
     };
 }
 

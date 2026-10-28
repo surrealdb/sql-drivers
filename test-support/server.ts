@@ -72,6 +72,7 @@ export async function startServer(
         host: `127.0.0.1:${port}`,
         stop: () =>
             new Promise((resolve) => {
+                if (child.exitCode !== null) return resolve();
                 child.once("exit", () => resolve());
                 child.kill();
             }),

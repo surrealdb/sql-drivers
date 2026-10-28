@@ -369,3 +369,52 @@ describe("transactions and live over WebSocket", () => {
         ]);
     });
 });
+
+describe("review regressions", () => {
+    it("fails when a session setting fails over WebSocket instead of ignoring it", async () => {
+        FakeSocket.reset(
+            answering((method) =>
+                method === "pgsql"
+                    ? {
+                          statements: [
+                              {
+                                  status: "ERR",
+                                  error: {
+                                      message: "unrecognized configuration parameter",
+                                      sqlstate: "42704",
+                                  },
+                              },
+                          ],
+                          transaction: { status: "idle" },
+                      }
+                    : null,
+            ),
+        );
+        const { sql } = client(() => emptyOk("X"), { transport: "ws", settings: { nope: "x" } });
+        await expect(sql`SELECT 1`).rejects.toThrow(/session setting failed/);
+        await expect(sql`SELECT 2`).rejects.toThrow(/session setting failed/);
+    });
+
+    it("keeps live notifications that arrive together with the registration reply", async () => {
+        FakeSocket.reset((socket, m) => {
+            if (m.method === "live") {
+                socket.reply({ result: { action: "CREATE", id: "q-9", result: { n: 1 } } });
+                socket.reply({ id: m.id, result: "q-9" });
+            } else socket.reply({ id: m.id, result: m.method === "signin" ? "tok" : null });
+        });
+        const { sql } = client(() => emptyOk("X"), { transport: "ws" });
+        const iterator = sql.live<{ n: number }>("person")[Symbol.asyncIterator]();
+        expect((await iterator.next()).value).toEqual({
+            action: "CREATE",
+            id: "q-9",
+            result: { n: 1 },
+        });
+        await iterator.return?.();
+    });
+
+    it("does not expose credentials when a client is serialised", () => {
+        const { sql } = client(() => emptyOk("X"));
+        expect(JSON.stringify(Object.assign({}, sql))).not.toContain("root");
+        expect(Object.keys(sql)).not.toContain("config");
+    });
+});
