@@ -372,7 +372,25 @@ Ideas, not code:
 - From `@planetscale/database`: the `transaction(fn)` callback helper with automatic commit and rollback; a per-field `cast` hook with documented defaults and lossless 64-bit and decimal handling; the typed `ExecutedQuery` metadata idea (`time`, `size`); the distinct error type for non-database replies; and rejecting removed call forms loudly.
 - From the `surrealdb` JS SDK: authentication shapes, token refresh, reconnect option names and backoff, the idea of a thin engine interface over HTTP and WebSocket.
 
-## 13. Decisions needed from the user
+## 13. Implementation status
+
+Built and covered by tests:
+
+- Internal core: config and connection string resolution, `Transport` with HTTP and WebSocket implementations, auth (Basic or one signin over HTTP, signin and re-signin before expiry over WebSocket), reconnect with backoff, abort and timeout, per-call `query_cancel`, the session runner with settings handling, lazy statements and templates, error hierarchy, emitter, the dialect-neutral client core.
+- `@surrealdb/pg` native API (`connect`, template, `query`, `execute`, `batch`, `begin`, `surql`, `live`, `describe`, `capabilities`, `withDatabase`, `raw`, `vector`), native and text value decoding, `RecordId`.
+- `@surrealdb/pg` node-postgres layer (`Client`, `Pool`, `types`, `DatabaseError`-shaped errors).
+- `@surrealdb/mysql` native API and the mysql2 promise and callback layers.
+
+Differences from the design above, to be closed or recorded:
+
+- The option for how user and password are presented over HTTP is `authMode: "basic" | "token"`.
+- Access tokens over WebSocket are renewed by signing in again with the stored credentials before expiry; the `refresh` RPC is not used.
+- CBOR (`codec: "cbor"` and the `/cbor` entry) is not built; JSON is the only codec.
+- Not built yet: `listenLive`, `sql.use()`, the `rid` template helper, interval helpers and the `Interval` type, the `neon()`-shaped function for drizzle `neon-http`, a `Cursor`.
+- Native MySQL value decoding is provisional until the instance documents MySQL value encodings.
+- `Pool.query()` and `Pool` clients in `@surrealdb/pg`, and the mysql2 pool, run one-shot queries over HTTP when the transport is `auto`.
+
+## 14. Decisions needed from the user
 
 1. Value codec dependency. Recommendation: JSON by default with zero runtime dependencies (the contract's value table makes JSON fully typed through `columns[].type`), CBOR optional through `@surrealdb/cbor` behind a separate entry. Do not depend on `@surrealdb/sqon` (which the current `surrealdb` SDK uses): it bundles text, flatbuffer and shaped codecs that cost edge bundle size. `@surrealdb/cbor` is published only as 2.0.0-alpha versions (`latest` is alpha.1, the SDK pins alpha.4); confirm which to pin.
 2. Neon and PlanetScale adapters. Recommendation: do not chase drizzle `neon-serverless`, drizzle `planetscale-serverless` or Prisma's Neon and PlanetScale adapters, which hard-code vendor classes. Support drizzle `neon-http` through a `neon()`-shaped function as a stretch goal only.

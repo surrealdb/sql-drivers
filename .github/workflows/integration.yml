@@ -1,0 +1,42 @@
+name: Integration
+
+# Runs the suites against a real server. The server build must serve the `pgsql` and `mysql`
+# RPC methods; set the repository variable SURREAL_BIN_URL to a downloadable binary.
+on:
+    workflow_dispatch:
+    pull_request:
+
+permissions:
+    contents: read
+
+jobs:
+    server:
+        name: Server Integration
+        if: ${{ vars.SURREAL_BIN_URL != '' }}
+        runs-on: ubuntu-latest
+        steps:
+            - name: Install Bun
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: 1.4.4
+
+            - name: Install Node
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+              with:
+                  node-version: 24
+
+            - name: Code Checkout
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+            - name: Install dependencies
+              run: bun install --frozen-lockfile
+
+            - name: Download the server
+              run: |
+                  curl -fsSL "${{ vars.SURREAL_BIN_URL }}" -o "$RUNNER_TEMP/surreal"
+                  chmod +x "$RUNNER_TEMP/surreal"
+
+            - name: Integration tests
+              run: bun run test:integration
+              env:
+                  SURREAL_BIN: ${{ runner.temp }}/surreal

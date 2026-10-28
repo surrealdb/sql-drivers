@@ -1,0 +1,98 @@
+name: Check
+
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+    workflow_call:
+
+permissions:
+    contents: read
+
+jobs:
+    quality:
+        name: Code Quality
+        runs-on: ubuntu-latest
+        steps:
+            - name: Install Bun
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: 1.4.4
+
+            - name: Code Checkout
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+            - name: Install dependencies
+              run: bun install --frozen-lockfile
+
+            - name: Checking Code Quality
+              run: bun run qc
+
+            - name: Typecheck
+              run: bun run prisma:generate && bun run qts
+
+    unit:
+        name: Unit Tests
+        runs-on: ubuntu-latest
+        steps:
+            - name: Install Bun
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: 1.4.4
+
+            - name: Code Checkout
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+            - name: Install dependencies
+              run: bun install --frozen-lockfile
+
+            - name: Build
+              run: bun run build
+
+            - name: Unit tests
+              run: bun run test
+
+    compat:
+        name: Adapter Compatibility (simulator)
+        runs-on: ubuntu-latest
+        steps:
+            - name: Install Bun
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: 1.4.4
+
+            - name: Install Node
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+              with:
+                  node-version: 24
+
+            - name: Code Checkout
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+            - name: Install dependencies
+              run: bun install --frozen-lockfile
+
+            - name: Adapter suites
+              run: bun run test:compat
+
+    size:
+        name: Bundle Size
+        runs-on: ubuntu-latest
+        steps:
+            - name: Install Bun
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: 1.4.4
+
+            - name: Code Checkout
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+            - name: Install dependencies
+              run: bun install --frozen-lockfile
+
+            - name: Build
+              run: bun run build
+
+            - name: Size budgets
+              run: bun run size

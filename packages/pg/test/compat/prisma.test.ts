@@ -25,7 +25,7 @@ beforeAll(async () => {
     await pool.query(
         `create table "Post" (id serial primary key, title text not null, "authorId" integer not null references "User"(id))`,
     );
-    const mod = (await import("./prisma/generated/client.ts").catch((e) => {
+    const mod = (await import("./prisma/generated/client").catch((e) => {
         throw new Error(`Run \`bun run prisma:generate\` first: ${e.message}`);
     })) as { PrismaClient: new (o: unknown) => PrismaClientLike };
     prisma = new mod.PrismaClient({ adapter: new PrismaPg(pool) });
