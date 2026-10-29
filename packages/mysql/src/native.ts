@@ -14,6 +14,7 @@ import {
     type StatementLike,
     settingStatements,
     toStatementError,
+    transactionOptions,
     type WireColumn,
     type WireResponse,
     type WireType,
@@ -48,6 +49,8 @@ export interface Result<Row = Record<string, unknown>> {
     warnings: number;
     time: string;
     transaction: "idle" | "active" | "failed";
+    /** For an atomic call: whether it committed. Entries of an uncommitted call were rolled back, whatever their status */
+    committed?: boolean;
     results: Result<Row>[];
 }
 
@@ -57,7 +60,7 @@ export interface BatchOptions extends QueryOptions {
 }
 
 export interface TransactionOptions extends QueryOptions {
-    isolation?: "read uncommitted" | "read committed" | "repeatable read" | "serializable";
+    isolation?: "snapshot" | "read committed" | "repeatable read" | "serializable";
     readOnly?: boolean;
 }
 
@@ -98,7 +101,7 @@ export function buildResults(
                 : Object.fromEntries(columns.map((c, i) => [c.name, values[i]]));
         });
         const command = statement.command;
-        const result: Result = {
+        const result = {
             rows: rows as Record<string, unknown>[],
             columns: columns.map(toColumn),
             command: command?.tag ?? "",
@@ -107,10 +110,13 @@ export function buildResults(
             warnings: command?.warnings ?? 0,
             time: statement.time ?? "",
             transaction: response.transaction.status,
-            results,
+            ...(response.transaction.committed === undefined
+                ? {}
+                : { committed: response.transaction.committed }),
         };
-        results.push(result);
-        out.push(result);
+        Object.defineProperty(result, "results", { value: results, enumerable: false });
+        results.push(result as Result);
+        out.push(result as Result);
     }
     return out;
 }
@@ -121,12 +127,8 @@ export const spec: DialectSpec<Result, Column, QueryOptions> = {
     method: "mysql",
     placeholder: () => "?",
     settingStatements,
-    beginStatement: ({ isolation, readOnly }) => {
-        const start = `START TRANSACTION${readOnly ? " READ ONLY" : ""}`;
-        return isolation
-            ? `SET TRANSACTION ISOLATION LEVEL ${isolation.toUpperCase()}; ${start}`
-            : start;
-    },
+    beginStatement: "START TRANSACTION",
+    beginOptions: transactionOptions,
     results: (response, options) => buildResults(response, options),
     emptyResult: (transaction) => ({
         rows: [],

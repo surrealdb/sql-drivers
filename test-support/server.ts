@@ -67,6 +67,12 @@ export async function startServer(
         }
         await new Promise((r) => setTimeout(r, 100));
     }
+    // A fresh in-memory server has no namespace or database; the suites address `test/test`.
+    await fetch(`${url}/sql`, {
+        method: "POST",
+        headers: { Authorization: `Basic ${btoa("root:root")}`, Accept: "application/json" },
+        body: "DEFINE NAMESPACE test; USE NS test; DEFINE DATABASE test;",
+    });
     return {
         url,
         host: `127.0.0.1:${port}`,

@@ -279,21 +279,49 @@ describe("transactions and live over WebSocket", () => {
             }),
         );
         const { sql } = client(() => emptyOk("X"));
-        const out = await sql.begin(
-            async (tx) => {
-                await tx`UPDATE a SET b = ${1}`;
-                return "done";
-            },
-            { isolation: "serializable" },
-        );
+        const out = await sql.begin(async (tx) => {
+            await tx`UPDATE a SET b = ${1}`;
+            return "done";
+        });
         expect(out).toBe("done");
-        expect(seen).toEqual([
-            "BEGIN ISOLATION LEVEL SERIALIZABLE",
-            "UPDATE a SET b = $1",
-            "COMMIT",
-        ]);
+        expect(seen).toEqual(["BEGIN", "UPDATE a SET b = $1", "COMMIT"]);
         expect(FakeSocket.instances).toHaveLength(1);
         expect(FakeSocket.instances[0].readyState).toBe(3);
+    });
+
+    it("opens a transaction with an isolation level through the begin method and carries its id", async () => {
+        const sent: { method: string; params: unknown[]; txn?: unknown }[] = [];
+        FakeSocket.reset((socket, m) => {
+            sent.push({ method: m.method, params: m.params, txn: m.txn });
+            const result =
+                m.method === "signin"
+                    ? "tok"
+                    : m.method === "begin"
+                      ? "txn-1"
+                      : m.method === "pgsql"
+                        ? emptyOk("OK")
+                        : null;
+            socket.reply({ id: m.id, result });
+        });
+        const { sql } = client(() => emptyOk("X"));
+        await sql.begin(
+            async (tx) => {
+                await tx`UPDATE a SET b = ${1}`;
+            },
+            { isolation: "repeatable read", readOnly: true },
+        );
+        const rpc = sent.filter((m) => ["begin", "pgsql", "commit"].includes(m.method));
+        expect(rpc.map((m) => m.method)).toEqual(["begin", "pgsql", "commit"]);
+        expect(rpc[0].params).toEqual([{ isolation: "snapshot", read_only: {} }]);
+        expect(rpc[1].txn).toBe("txn-1");
+        expect(rpc[2].params).toEqual(["txn-1"]);
+    });
+
+    it("rejects an unknown isolation level", async () => {
+        const { sql } = client(() => emptyOk("X"));
+        await expect(sql.begin(async () => 1, { isolation: "chaos" as never })).rejects.toThrow(
+            /Unknown isolation level/,
+        );
     });
 
     it("rolls back on a throw and keeps the original error even when rollback fails", async () => {

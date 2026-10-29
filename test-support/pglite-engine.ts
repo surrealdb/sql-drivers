@@ -231,6 +231,23 @@ export class PgliteEngine {
         if (method === "use" || method === "authenticate" || method === "query_cancel")
             return Promise.resolve(null);
         if (method === "version") return Promise.resolve("surrealdb-simulator");
+        if (method === "begin" && kind === "ws") {
+            return this.#serial(async () => {
+                await this.#runOne("BEGIN", undefined, undefined, undefined);
+                return { id: "00000000-0000-7000-8000-000000000001" };
+            });
+        }
+        if ((method === "commit" || method === "cancel") && kind === "ws") {
+            return this.#serial(async () => {
+                await this.#runOne(
+                    method === "commit" ? "COMMIT" : "ROLLBACK",
+                    undefined,
+                    undefined,
+                    undefined,
+                );
+                return null;
+            });
+        }
         if (method !== "pgsql") {
             return Promise.reject({ code: -32601, kind: "NotFound", message: "Method not found" });
         }

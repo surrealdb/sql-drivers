@@ -6,7 +6,7 @@ import type {
     WireResponse,
     WireStatement,
 } from "./contract";
-import { RpcError, StatementError } from "./errors";
+import { RpcError, StatementError, UnsupportedOnTransportError } from "./errors";
 import type { CallOptions, Transport } from "./transport";
 
 export function toStatementError(statement: WireStatement): StatementError {
@@ -61,6 +61,11 @@ export class SqlSession {
             await this.#applying;
         }
         const prefix = !persistent ? this.settings.length : 0;
+        if (prefix > 0 && options?.atomic) {
+            throw new UnsupportedOnTransportError(
+                "Session settings cannot be combined with an atomic call over HTTP, because an atomic call refuses SET statements and HTTP keeps settings for the request only; use a WebSocket or drop the settings",
+            );
+        }
         let body: string | readonly (string | BatchEntry)[] = statements;
         if (prefix > 0) {
             body = [

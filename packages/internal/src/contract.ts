@@ -44,7 +44,7 @@ export type TransactionStatus = "idle" | "active" | "failed";
 export interface WireResponse {
     statements: WireStatement[];
     params?: { type: WireType }[];
-    transaction: { status: TransactionStatus; id?: string };
+    transaction: { status: TransactionStatus; id?: string; committed?: boolean };
 }
 
 export interface SqlCallOptions {

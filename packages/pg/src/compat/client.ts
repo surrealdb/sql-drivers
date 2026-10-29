@@ -7,6 +7,7 @@ import {
     SqlSession,
     StatementError,
     type Transport,
+    transactionOptions,
     type WireColumn,
     type WireResponse,
     WsTransport,
@@ -91,6 +92,27 @@ export function toConnectOptions(config: ClientConfig): PgConnectOptions {
     if (config.statement_timeout) settings.statement_timeout = config.statement_timeout;
     if (Object.keys(settings).length > 0) options.settings = settings;
     return options;
+}
+
+const BEGIN_RE =
+    /^\s*(?:begin|start\s+transaction)(?:\s+(?:work|transaction))?\s*([^;]*?)\s*;?\s*$/i;
+const END_RE = /^\s*(commit|end|rollback|abort)(?:\s+(?:work|transaction))?\s*;?\s*$/i;
+
+/**
+ * A transaction start which carries an isolation level or access mode. The dialect text cannot
+ * express these on the instance, so the client opens such a transaction with the RPC method.
+ */
+function parseBeginModes(text: string): { isolation?: string; readOnly?: boolean } | undefined {
+    const m = BEGIN_RE.exec(text);
+    if (!m || !m[1]) return undefined;
+    const modes: { isolation?: string; readOnly?: boolean } = {};
+    const level =
+        /isolation\s+level\s+(read\s+uncommitted|read\s+committed|repeatable\s+read|serializable)/i.exec(
+            m[1],
+        );
+    if (level) modes.isolation = level[1];
+    if (/\bread\s+only\b/i.test(m[1])) modes.readOnly = true;
+    return modes.isolation || modes.readOnly ? modes : undefined;
 }
 
 const COMMAND_RE = /^([A-Za-z]+)(?: (\d+))?(?: (\d+))?/;
@@ -199,6 +221,7 @@ export class Client extends Emitter {
     #transport: Transport | undefined;
     #session: SqlSession | undefined;
     #connecting: Promise<void> | undefined;
+    #txn: string | undefined;
 
     constructor(config?: string | ClientConfig) {
         super();
@@ -214,7 +237,7 @@ export class Client extends Emitter {
 
     /** Whether a transaction is open on the session. */
     get inTransaction(): boolean {
-        return (this.#session?.status ?? "idle") !== "idle";
+        return this.#txn !== undefined || (this.#session?.status ?? "idle") !== "idle";
     }
 
     connect(): Promise<void>;
@@ -276,11 +299,34 @@ export class Client extends Emitter {
         if (!this.#session) await this.connect();
         const session = this.#session as SqlSession;
         const timeout = config.query_timeout ?? this.#options.query_timeout;
+        const transport = this.#transport as Transport;
+        if (this.#txn === undefined) {
+            const modes = parseBeginModes(config.text);
+            const rpcOptions = modes && transactionOptions(modes);
+            if (rpcOptions) {
+                const opened = await transport.call<string | { id: string }>("begin", [rpcOptions]);
+                this.#txn = typeof opened === "string" ? opened : opened.id;
+                return controlResult("BEGIN");
+            }
+        } else {
+            const end = END_RE.exec(config.text);
+            if (end) {
+                const txn = this.#txn;
+                this.#txn = undefined;
+                const commit = /^(commit|end)$/i.test(end[1]);
+                await transport.call(commit ? "commit" : "cancel", [txn]);
+                return controlResult(commit ? "COMMIT" : "ROLLBACK");
+            }
+        }
+        const call =
+            this.#txn !== undefined || timeout
+                ? { txn: this.#txn, timeoutMs: timeout || undefined }
+                : undefined;
         const response = await session.run(
             config.text,
             buildVars(values),
             { rowMode: "array", valueMode: "text" },
-            timeout ? { timeoutMs: timeout } : undefined,
+            call,
         );
         const results = toQueryResults(response, config);
         return results.length === 1 ? results[0] : results.length === 0 ? emptyResult() : results;
@@ -299,6 +345,10 @@ export class Client extends Emitter {
         if (!callback) return done;
         done.then(callback, callback);
     }
+}
+
+function controlResult(command: string): QueryResult {
+    return { command, rowCount: null, oid: null, rows: [], fields: [] };
 }
 
 function emptyResult(): QueryResult {

@@ -387,6 +387,8 @@ Differences from the design above, to be closed or recorded:
 - CBOR (`codec: "cbor"` and the `/cbor` entry) is not built; JSON is the only codec.
 - Not built yet: `listenLive`, `sql.use()`, the `rid` template helper, interval helpers and the `Interval` type, the `neon()`-shaped function for drizzle `neon-http`, a `Cursor`, a browser warning when credentials appear in browser code.
 - Native MySQL value decoding is provisional until the instance documents MySQL value encodings.
+- `begin` with an isolation level or read-only mode uses the RPC `begin` method and the `txn` envelope, because the instance recognises only a bare `BEGIN` or `START TRANSACTION`. Isolation levels are `snapshot` and `serializable`; the standard weaker levels run as snapshot.
+- Atomic calls refuse session settings over HTTP, and results carry `committed` for atomic calls.
 - `Pool.query()` and `Pool` clients in `@surrealdb/pg`, and the mysql2 pool, run one-shot queries over HTTP when the transport is `auto`.
 
 ## 14. Decisions needed from the user
