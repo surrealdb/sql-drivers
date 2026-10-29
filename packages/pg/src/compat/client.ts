@@ -94,16 +94,21 @@ export function toConnectOptions(config: ClientConfig): PgConnectOptions {
     return options;
 }
 
-const BEGIN_RE =
-    /^\s*(?:begin|start\s+transaction)(?:\s+(?:work|transaction))?\s*([^;]*?)\s*;?\s*$/i;
-const END_RE = /^\s*(commit|end|rollback|abort)(?:\s+(?:work|transaction))?\s*;?\s*$/i;
+const BEGIN_RE = /^(?:begin|start\s+transaction)(?:\s+(?:work|transaction))?(?:\s+([^;]*))?;?$/i;
+const END_RE = /^(commit|end|rollback|abort)(?:\s+(?:work|transaction))?;?$/i;
+
+/** Strips surrounding whitespace and one trailing semicolon so the patterns above stay anchored without overlapping quantifiers. */
+function normalise(text: string): string {
+    const t = text.trim();
+    return t.endsWith(";") ? t.slice(0, -1).trimEnd() : t;
+}
 
 /**
  * A transaction start which carries an isolation level or access mode. The dialect text cannot
  * express these on the instance, so the client opens such a transaction with the RPC method.
  */
 function parseBeginModes(text: string): { isolation?: string; readOnly?: boolean } | undefined {
-    const m = BEGIN_RE.exec(text);
+    const m = BEGIN_RE.exec(normalise(text));
     if (!m || !m[1]) return undefined;
     const modes: { isolation?: string; readOnly?: boolean } = {};
     const level =
@@ -309,7 +314,7 @@ export class Client extends Emitter {
                 return controlResult("BEGIN");
             }
         } else {
-            const end = END_RE.exec(config.text);
+            const end = END_RE.exec(normalise(config.text));
             if (end) {
                 const txn = this.#txn;
                 this.#txn = undefined;
