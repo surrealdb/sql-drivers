@@ -94,29 +94,43 @@ export function toConnectOptions(config: ClientConfig): PgConnectOptions {
     return options;
 }
 
-const BEGIN_RE = /^(?:begin|start\s+transaction)(?:\s+(?:work|transaction))?(?:\s+([^;]*))?;?$/i;
 const END_RE = /^(commit|end|rollback|abort)(?:\s+(?:work|transaction))?;?$/i;
 
-/** Strips surrounding whitespace and one trailing semicolon so the patterns above stay anchored without overlapping quantifiers. */
+/** Strips surrounding whitespace and one trailing semicolon so the pattern above stays anchored without overlapping quantifiers. */
 function normalise(text: string): string {
     const t = text.trim();
     return t.endsWith(";") ? t.slice(0, -1).trimEnd() : t;
 }
+
+const LEVELS = new Set(["read uncommitted", "read committed", "repeatable read", "serializable"]);
 
 /**
  * A transaction start which carries an isolation level or access mode. The dialect text cannot
  * express these on the instance, so the client opens such a transaction with the RPC method.
  */
 function parseBeginModes(text: string): { isolation?: string; readOnly?: boolean } | undefined {
-    const m = BEGIN_RE.exec(normalise(text));
-    if (!m || !m[1]) return undefined;
+    const words = normalise(text).toLowerCase().split(/\s+/);
+    let i = 0;
+    if (words[i] === "start" && words[i + 1] === "transaction") i += 2;
+    else if (words[i] === "begin") i += 1;
+    else return undefined;
+    if (words[i] === "work" || words[i] === "transaction") i += 1;
     const modes: { isolation?: string; readOnly?: boolean } = {};
-    const level =
-        /isolation\s+level\s+(read\s+uncommitted|read\s+committed|repeatable\s+read|serializable)/i.exec(
-            m[1],
-        );
-    if (level) modes.isolation = level[1];
-    if (/\bread\s+only\b/i.test(m[1])) modes.readOnly = true;
+    for (; i < words.length; i++) {
+        if (words[i] === "isolation" && words[i + 1] === "level") {
+            const two = `${words[i + 2]} ${words[i + 3]}`;
+            if (LEVELS.has(two)) {
+                modes.isolation = two;
+                i += 3;
+            } else if (words[i + 2] === "serializable") {
+                modes.isolation = "serializable";
+                i += 2;
+            }
+        } else if (words[i] === "read" && words[i + 1] === "only") {
+            modes.readOnly = true;
+            i += 1;
+        }
+    }
     return modes.isolation || modes.readOnly ? modes : undefined;
 }
 
