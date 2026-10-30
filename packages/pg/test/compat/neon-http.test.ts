@@ -79,7 +79,7 @@ describe("drizzle neon-http on neon()", () => {
             .returning();
         expect(inserted).toHaveLength(2);
         expect(inserted[0]).toMatchObject({ id: 1, name: "Ann", age: 30, active: true });
-        expect(typeof inserted[0].createdAt).toBe("string");
+        expect(inserted[0].createdAt).toBeInstanceOf(Date);
         const rows = await db
             .select({ n: users.name, a: users.age })
             .from(users)
