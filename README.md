@@ -249,20 +249,20 @@ The compatibility layers convert `StatementError` to the shape their ecosystem e
 
 ## ORM and driver compatibility
 
-| Tool                              | Package                     | Entry point                                   |
-| --------------------------------- | --------------------------- | --------------------------------------------- |
-| node-postgres `Client` and `Pool` | `@surrealdb/pg`             | `Client`, `Pool`                              |
-| Drizzle `node-postgres`           | `@surrealdb/pg`             | `drizzle({ client: pool as never })`          |
-| Kysely `PostgresDialect`          | `@surrealdb/pg`             | `new PostgresDialect({ pool })`               |
-| Prisma `@prisma/adapter-pg`       | `@surrealdb/pg`             | `new pg.Pool({ connectionString, Client })`   |
-| mysql2 promise API                | `@surrealdb/mysql`          | `createPool`, `createConnection`              |
-| Drizzle `mysql2`                  | `@surrealdb/mysql`          | `drizzle(pool as never, { mode: "default" })` |
-| Kysely `MysqlDialect`             | `@surrealdb/mysql/callback` | `new MysqlDialect({ pool })`                  |
-| `@neondatabase/serverless`        | `@surrealdb/pg/neon`        | `neon`, `Pool`, `Client`, `neonConfig`        |
-| Drizzle `neon-http`               | `@surrealdb/pg/neon`        | `drizzle(neon(url))`, with the import aliased |
-| Drizzle `neon-serverless`         | `@surrealdb/pg/neon`        | `drizzle({ client: pool })`, aliased          |
-| `@planetscale/database`           | `@surrealdb/mysql/planetscale` | `Client`, `connect`, `cast`, `format`      |
-| Drizzle `planetscale-serverless`  | `@surrealdb/mysql/planetscale` | `drizzle(new Client({ url }))`, aliased    |
+| Tool                              | Package                        | Entry point                                   |
+| --------------------------------- | ------------------------------ | --------------------------------------------- |
+| node-postgres `Client` and `Pool` | `@surrealdb/pg`                | `Client`, `Pool`                              |
+| Drizzle `node-postgres`           | `@surrealdb/pg`                | `drizzle({ client: pool as never })`          |
+| Kysely `PostgresDialect`          | `@surrealdb/pg`                | `new PostgresDialect({ pool })`               |
+| Prisma `@prisma/adapter-pg`       | `@surrealdb/pg`                | `new pg.Pool({ connectionString, Client })`   |
+| mysql2 promise API                | `@surrealdb/mysql`             | `createPool`, `createConnection`              |
+| Drizzle `mysql2`                  | `@surrealdb/mysql`             | `drizzle(pool as never, { mode: "default" })` |
+| Kysely `MysqlDialect`             | `@surrealdb/mysql/callback`    | `new MysqlDialect({ pool })`                  |
+| `@neondatabase/serverless`        | `@surrealdb/pg/neon`           | `neon`, `Pool`, `Client`, `neonConfig`        |
+| Drizzle `neon-http`               | `@surrealdb/pg/neon`           | `drizzle(neon(url))`, with the import aliased |
+| Drizzle `neon-serverless`         | `@surrealdb/pg/neon`           | `drizzle({ client: pool })`, aliased          |
+| `@planetscale/database`           | `@surrealdb/mysql/planetscale` | `Client`, `connect`, `cast`, `format`         |
+| Drizzle `planetscale-serverless`  | `@surrealdb/mysql/planetscale` | `drizzle(new Client({ url }))`, aliased       |
 
 ```ts
 // Drizzle on PostgreSQL
