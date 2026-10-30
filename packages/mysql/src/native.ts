@@ -51,6 +51,8 @@ export interface Result<Row = Record<string, unknown>> {
     transaction: "idle" | "active" | "failed";
     /** For an atomic call: whether it committed. Entries of an uncommitted call were rolled back, whatever their status */
     committed?: boolean;
+    /** For an entry of an atomic call that did not commit: the statement ran but its effects were rolled back */
+    rolledBack?: boolean;
     results: Result<Row>[];
 }
 
@@ -113,6 +115,7 @@ export function buildResults(
             ...(response.transaction.committed === undefined
                 ? {}
                 : { committed: response.transaction.committed }),
+            ...(statement.rolled_back ? { rolledBack: true } : {}),
         };
         Object.defineProperty(result, "results", { value: results, enumerable: false });
         results.push(result as Result);

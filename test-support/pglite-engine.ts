@@ -255,7 +255,16 @@ export class PgliteEngine {
             const [input, vars, options] = params as [
                 string | (string | { text: string; vars?: Record<string, unknown> })[],
                 Record<string, unknown> | null,
-                { rowMode?: string; atomic?: boolean; valueMode?: string } | undefined,
+                (
+                    | {
+                          rowMode?: string;
+                          atomic?: boolean;
+                          valueMode?: string;
+                          isolation?: string;
+                          readOnly?: boolean;
+                      }
+                    | undefined
+                ),
             ];
             const entries = (Array.isArray(input) ? input : [input]).map((e) =>
                 typeof e === "string"
@@ -281,7 +290,9 @@ export class PgliteEngine {
                         transaction: { status: this.#status },
                     };
                 }
-                await this.#runOne("BEGIN", undefined, undefined, undefined);
+                const level = options?.isolation ? ` ISOLATION LEVEL ${options.isolation}` : "";
+                const mode = options?.readOnly ? " READ ONLY" : "";
+                await this.#runOne(`BEGIN${level}${mode}`, undefined, undefined, undefined);
             }
             for (const entry of entries) {
                 const hasVars = entry.vars && Object.keys(entry.vars).length > 0;
@@ -326,6 +337,14 @@ export class PgliteEngine {
                 const failed = (statements as { status: string }[]).some((s) => s.status === "ERR");
                 await this.#runOne(failed ? "ROLLBACK" : "COMMIT", undefined, undefined, undefined);
                 if (failed) this.#status = "idle";
+                return {
+                    statements: failed
+                        ? (statements as { status: string }[]).map((s) =>
+                              s.status === "OK" ? { ...s, rolled_back: true } : s,
+                          )
+                        : statements,
+                    transaction: { status: "idle", committed: !failed },
+                };
             }
             if (kind === "http" && !atomic) {
                 // HTTP holds no transaction between requests

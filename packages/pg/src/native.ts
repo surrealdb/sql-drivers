@@ -53,6 +53,8 @@ export interface Result<Row = Record<string, unknown>> {
     transaction: "idle" | "active" | "failed";
     /** For an atomic call: whether it committed. Entries of an uncommitted call were rolled back, whatever their status */
     committed?: boolean;
+    /** For an entry of an atomic call that did not commit: the statement ran but its effects were rolled back */
+    rolledBack?: boolean;
     /** Every statement of the call in order; this result is the last of them */
     results: Result<Row>[];
 }
@@ -60,6 +62,15 @@ export interface Result<Row = Record<string, unknown>> {
 export interface BatchOptions extends QueryOptions {
     /** Run all statements in one transaction which commits only if all succeed (default true) */
     atomic?: boolean;
+    /** The isolation level of the atomic transaction */
+    isolation?:
+        | "snapshot"
+        | "read uncommitted"
+        | "read committed"
+        | "repeatable read"
+        | "serializable";
+    /** Run the atomic transaction read-only: a write in it fails */
+    readOnly?: boolean;
     /** Throw on the first failed statement (default true) */
     throwOnError?: boolean;
 }
@@ -130,6 +141,7 @@ export function buildResults(
             ...(response.transaction.committed === undefined
                 ? {}
                 : { committed: response.transaction.committed }),
+            ...(statement.rolled_back ? { rolledBack: true } : {}),
         };
         Object.defineProperty(result, "results", { value: results, enumerable: false });
         results.push(result as Result);

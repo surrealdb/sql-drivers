@@ -94,46 +94,6 @@ export function toConnectOptions(config: ClientConfig): PgConnectOptions {
     return options;
 }
 
-const END_RE = /^(commit|end|rollback|abort)(?:\s+(?:work|transaction))?;?$/i;
-
-/** Strips surrounding whitespace and one trailing semicolon so the pattern above stays anchored without overlapping quantifiers. */
-function normalise(text: string): string {
-    const t = text.trim();
-    return t.endsWith(";") ? t.slice(0, -1).trimEnd() : t;
-}
-
-const LEVELS = new Set(["read uncommitted", "read committed", "repeatable read", "serializable"]);
-
-/**
- * A transaction start which carries an isolation level or access mode. The dialect text cannot
- * express these on the instance, so the client opens such a transaction with the RPC method.
- */
-function parseBeginModes(text: string): { isolation?: string; readOnly?: boolean } | undefined {
-    const words = normalise(text).toLowerCase().split(/\s+/);
-    let i = 0;
-    if (words[i] === "start" && words[i + 1] === "transaction") i += 2;
-    else if (words[i] === "begin") i += 1;
-    else return undefined;
-    if (words[i] === "work" || words[i] === "transaction") i += 1;
-    const modes: { isolation?: string; readOnly?: boolean } = {};
-    for (; i < words.length; i++) {
-        if (words[i] === "isolation" && words[i + 1] === "level") {
-            const two = `${words[i + 2]} ${words[i + 3]}`;
-            if (LEVELS.has(two)) {
-                modes.isolation = two;
-                i += 3;
-            } else if (words[i + 2] === "serializable") {
-                modes.isolation = "serializable";
-                i += 2;
-            }
-        } else if (words[i] === "read" && words[i + 1] === "only") {
-            modes.readOnly = true;
-            i += 1;
-        }
-    }
-    return modes.isolation || modes.readOnly ? modes : undefined;
-}
-
 const COMMAND_RE = /^([A-Za-z]+)(?: (\d+))?(?: (\d+))?/;
 
 export function parseCommandTag(tag: string): {
@@ -240,7 +200,6 @@ export class Client extends Emitter {
     #transport: Transport | undefined;
     #session: SqlSession | undefined;
     #connecting: Promise<void> | undefined;
-    #txn: string | undefined;
 
     constructor(config?: string | ClientConfig) {
         super();
@@ -256,7 +215,7 @@ export class Client extends Emitter {
 
     /** Whether a transaction is open on the session. */
     get inTransaction(): boolean {
-        return this.#txn !== undefined || (this.#session?.status ?? "idle") !== "idle";
+        return (this.#session?.status ?? "idle") !== "idle";
     }
 
     connect(): Promise<void>;
@@ -318,29 +277,7 @@ export class Client extends Emitter {
         if (!this.#session) await this.connect();
         const session = this.#session as SqlSession;
         const timeout = config.query_timeout ?? this.#options.query_timeout;
-        const transport = this.#transport as Transport;
-        if (this.#txn === undefined) {
-            const modes = parseBeginModes(config.text);
-            const rpcOptions = modes && transactionOptions(modes);
-            if (rpcOptions) {
-                const opened = await transport.call<string | { id: string }>("begin", [rpcOptions]);
-                this.#txn = typeof opened === "string" ? opened : opened.id;
-                return controlResult("BEGIN");
-            }
-        } else {
-            const end = END_RE.exec(normalise(config.text));
-            if (end) {
-                const txn = this.#txn;
-                this.#txn = undefined;
-                const commit = /^(commit|end)$/i.test(end[1]);
-                await transport.call(commit ? "commit" : "cancel", [txn]);
-                return controlResult(commit ? "COMMIT" : "ROLLBACK");
-            }
-        }
-        const call =
-            this.#txn !== undefined || timeout
-                ? { txn: this.#txn, timeoutMs: timeout || undefined }
-                : undefined;
+        const call = timeout ? { timeoutMs: timeout } : undefined;
         const response = await session.run(
             config.text,
             buildVars(values),
@@ -364,10 +301,6 @@ export class Client extends Emitter {
         if (!callback) return done;
         done.then(callback, callback);
     }
-}
-
-function controlResult(command: string): QueryResult {
-    return { command, rowCount: null, oid: null, rows: [], fields: [] };
 }
 
 function emptyResult(): QueryResult {

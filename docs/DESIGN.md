@@ -1,6 +1,6 @@
 # Design: @surrealdb/pg and @surrealdb/mysql
 
-Status: draft 1, written against the RPC contract in surrealdb-private PR 2369 ("Client contract" in `doc/design/sql-dialect-rpc-methods.md`, commit b57b4a5884). The engine side has not landed yet, so every engine behaviour below is the contract's promise, not an observed fact, until the integration suite in this repo has run against a built binary.
+Status: draft 2, written against the RPC contract ("Client contract" in the engine's `doc/design/sql-dialect-rpc-methods.md`). The integration suite in this repo runs against a built engine; see `docs/COMPATIBILITY.md` for what it covers.
 
 ## 1. Goals and non-goals
 
@@ -337,7 +337,7 @@ Behaviour:
 `@surrealdb/pg/neon` and `@surrealdb/mysql/planetscale` are thin shapes over the native layers, written from the vendors' documented public API.
 
 - `neon(url, options)` builds an `HttpTransport` and `SqlSession` from the same `resolveConfig` as the rest of the package, so the namespace comes from `?ns=` and credentials from the URL, with `authToken` mapped to a bearer credential. A query is a lazy thenable (`NeonQueryPromise`); `transaction` sends one atomic `pgsql` call with one entry and one `vars` object per query. Results go through the node-postgres text parsers of the compatibility layer (`valueMode: "text"`), which is what Drizzle's parser overrides rely on. Errors are `NeonDbError`, a `DatabaseError` subclass.
-- `neonConfig` is read when a request or client is made: `fetchFunction` and `fetchEndpoint` are applied by wrapping `fetch` given to the transport, and `webSocketConstructor` by the `Client` and `Pool` subclasses of the entry point. The remaining fields are accepted and ignored. An atomic call carries no isolation level or access mode, so `readOnly` and `Serializable` are refused rather than ignored.
+- `neonConfig` is read when a request or client is made: `fetchFunction` and `fetchEndpoint` are applied by wrapping `fetch` given to the transport, and `webSocketConstructor` by the `Client` and `Pool` subclasses of the entry point. The remaining fields are accepted and ignored. `isolationLevel` and `readOnly` are sent with the atomic call.
 - The PlanetScale `Client` and `Connection` wrap the native `connect()` client. Arguments are bound as parameters (`?` and `:name` rewritten to positional markers), results are requested with `bigint: "string"` and `dateStrings`, and each value is passed to `cast` as text with a Vitess type name derived from the protocol type. `transaction(fn)` is the native `begin`, so it needs a WebSocket session.
 - Drizzle's neon and planetscale drivers import the vendors' packages by name and check their classes. The entry points do not shadow those names; applications alias them in the bundler, and the compat suites do the same in `vitest.config.ts`. No vendor package is a dependency of this repository.
 

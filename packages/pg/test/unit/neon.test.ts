@@ -261,21 +261,38 @@ describe("neon() transactions", () => {
         await expect(sql.transaction([sql`SELECT 1`])).rejects.toBeInstanceOf(NeonDbError);
     });
 
-    it("refuses what an atomic call cannot carry instead of ignoring it", async () => {
+    it("sends the isolation level and access mode of the transaction with the atomic call", async () => {
         const { calls, fetchFunction } = setup(two);
         const sql = neon(URL, { fetchFunction });
-        await expect(sql.transaction([sql`SELECT 1`], { readOnly: true })).rejects.toBeInstanceOf(
-            UnsupportedOnTransportError,
-        );
-        await expect(
-            sql.transaction([sql`SELECT 1`], { isolationLevel: "Serializable" }),
-        ).rejects.toBeInstanceOf(UnsupportedOnTransportError);
+        await sql.transaction([sql`SELECT 1`, sql`SELECT 2`], {
+            isolationLevel: "RepeatableRead",
+            readOnly: true,
+        });
+        const options = (calls[0].body as { params: unknown[] }).params[2] as Record<
+            string,
+            unknown
+        >;
+        expect(options).toMatchObject({
+            atomic: true,
+            isolation: "repeatable read",
+            readOnly: true,
+        });
+        await sql.transaction([sql`SELECT 1`, sql`SELECT 2`], { isolationLevel: "Serializable" });
+        const second = (calls[1].body as { params: unknown[] }).params[2] as Record<
+            string,
+            unknown
+        >;
+        expect(second.isolation).toBe("serializable");
+        expect(second.readOnly).toBeUndefined();
+    });
+
+    it("refuses an unknown isolation level before sending anything", async () => {
+        const { calls, fetchFunction } = setup(two);
+        const sql = neon(URL, { fetchFunction });
         await expect(
             sql.transaction([sql`SELECT 1`], { isolationLevel: "Bogus" as never }),
         ).rejects.toBeInstanceOf(TypeError);
         expect(calls).toHaveLength(0);
-        await sql.transaction([sql`SELECT 1`, sql`SELECT 2`], { isolationLevel: "RepeatableRead" });
-        expect(calls).toHaveLength(1);
     });
 
     it("rejects values which are not queries and returns nothing for no queries", async () => {

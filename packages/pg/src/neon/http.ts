@@ -5,7 +5,6 @@ import {
     resolveConfig,
     SqlSession,
     toStatementError,
-    UnsupportedOnTransportError,
     type WireResponse,
 } from "@surrealdb/sql-internal";
 import { type FieldDef, type TypesLike, toQueryResults } from "../compat/client";
@@ -167,16 +166,11 @@ function checkTransactionOptions(opts: HTTPTransactionOptions<boolean, boolean>)
     if (level !== undefined && level !== "Serializable" && !ISOLATION_LEVELS.has(level)) {
         throw new TypeError(`Unknown isolation level "${level}"`);
     }
-    if (opts.readOnly) {
-        throw new UnsupportedOnTransportError(
-            "A read-only transaction cannot be requested on an atomic call, so the option is refused instead of ignored",
-        );
-    }
-    if (level === "Serializable") {
-        throw new UnsupportedOnTransportError(
-            "The serializable isolation level cannot be requested on an atomic call, so the option is refused instead of ignored",
-        );
-    }
+}
+
+/** The SQL spelling of a Neon isolation level: `RepeatableRead` is `repeatable read` */
+function isolationOf(level: string | undefined): string | undefined {
+    return level?.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
 }
 
 function throwFirstError(response: WireResponse): void {
@@ -319,7 +313,13 @@ export function neon<ArrayMode extends boolean = false, FullResults extends bool
                 vars: buildVars(q.parameterizedQuery.params),
             })),
             undefined,
-            { rowMode: "array", valueMode: "text", atomic: true },
+            {
+                rowMode: "array",
+                valueMode: "text",
+                atomic: true,
+                isolation: isolationOf(base.isolationLevel),
+                readOnly: base.readOnly,
+            },
             callOf(base),
         );
         throwFirstError(response);

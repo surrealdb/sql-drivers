@@ -35,7 +35,7 @@ If you want SurrealQL and the full SurrealDB data model from JavaScript, use the
 
 ## Status
 
-The `pgsql` and `mysql` RPC methods are merged in the engine, and the integration suites for both packages run against a build of it (`b2b70df36f`, the merge of the methods): native queries over HTTP and WebSocket, atomic batches, interactive transactions with and without an isolation level, session settings and live query registration, and the Drizzle, Kysely and `pg.Pool` adapters, plus Drizzle and Kysely for MySQL.
+The `pgsql` and `mysql` RPC methods are merged in the engine, and the integration suites for both packages run against a build of the engine branch that makes the methods drop-in compatible: native queries over HTTP and WebSocket, atomic batches with isolation levels, interactive transactions opened by statement text, session settings and live query registration, `neon()` and the PlanetScale client, and the Drizzle, Kysely, Prisma and `pg.Pool` adapters, plus Drizzle and Kysely for MySQL.
 
 Some behaviours of that build differ from the contract or from PostgreSQL, and they limit what works today: `RETURNING` lists its columns in name order (which breaks Drizzle's and Prisma's `RETURNING`), text-mode integers carry a sized-number suffix, string parameters are not coerced to `jsonb`, `numeric` or large `int8` fields, and a transaction start with an isolation level is silently ignored in text. [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) lists each one, and which adapter suites pass against the simulators and against the server.
 
