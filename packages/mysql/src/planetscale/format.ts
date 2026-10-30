@@ -77,22 +77,20 @@ export function datetimeText(date: Date): string {
     return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}.${pad(date.getUTCMilliseconds(), 3)}`;
 }
 
+const ESCAPES: Record<string, string> = {
+    "\0": "\\0",
+    "\n": "\\n",
+    "\r": "\\r",
+    "\x1a": "\\Z",
+    "\\": "\\\\",
+    "'": "\\'",
+    '"': '\\"',
+};
+
 function quote(text: string): string {
-    const escaped = text.replace(/[\0\n\r\\'"\x1a]/g, (c) => {
-        switch (c) {
-            case "\0":
-                return "\\0";
-            case "\n":
-                return "\\n";
-            case "\r":
-                return "\\r";
-            case "\x1a":
-                return "\\Z";
-            default:
-                return `\\${c}`;
-        }
-    });
-    return `'${escaped}'`;
+    let out = "";
+    for (const ch of text) out += ESCAPES[ch] ?? ch;
+    return `'${out}'`;
 }
 
 function literal(value: unknown): string {

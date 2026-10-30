@@ -1,7 +1,11 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-    entry: { index: "src/index.ts", callback: "src/compat/callback.ts" },
+    entry: {
+        index: "src/index.ts",
+        callback: "src/compat/callback.ts",
+        planetscale: "src/planetscale/index.ts",
+    },
     format: ["esm"],
     dts: false,
     clean: true,
