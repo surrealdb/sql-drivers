@@ -14,7 +14,7 @@ Non-goals:
 
 - Not forks. No code is copied from `@neondatabase/serverless` (MIT, Neon Inc.) or `@planetscale/database` (Apache-2.0, PlanetScale). Both were read for their documented behaviour and public API shapes only; every borrowed idea is credited in section 12.
 - No TCP wire client. Native drivers (`pg`, `mysql2`) already talk to the PostgreSQL and MySQL wire listeners that Earth exposes over TCP. These packages are for places where TCP is unavailable.
-- No emulation of the Neon or PlanetScale vendor protocols. Several adapters hard-code `instanceof` checks against those vendors' classes (section 8), so supporting them would mean the engine speaking those protocols. That is a separate track.
+- No emulation of the Neon or PlanetScale server protocols. The drop-in entry points (section 8.4) copy the vendors' client APIs and still speak the `pgsql` and `mysql` RPC contract. Adapters which construct the vendors' own classes (Prisma's) would need the engine to speak those protocols, which is a separate track.
 
 ## 2. What the transport gives us
 
@@ -278,10 +278,10 @@ From reading the adapter sources (drizzle-orm 0.45.4, @prisma/* 7.10.1, kysely 0
 | Adapter                                       | Supported    | How                                                                                                          | Verified by                                                                              |
 | --------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
 | drizzle `node-postgres`                       | yes          | `@surrealdb/pg` `Client` or `Pool` passed as `client`                                                        | compat suite, drizzle queries, migrator, transactions                                    |
-| drizzle `neon-http`                           | yes, stretch | `neon()`-shaped function from `@surrealdb/pg/neon-http` (`query`, `transaction`, `arrayMode`, `fullResults`) | compat suite (needs `@neondatabase/serverless` installed as drizzle imports its `types`) |
-| drizzle `neon-serverless`                     | no           | hard `instanceof` on Neon's `Pool`                                                                           | none                                                                                     |
+| drizzle `neon-http`                           | yes          | `neon()` from `@surrealdb/pg/neon` (`query`, `transaction`, `arrayMode`, `fullResults`); the driver's `@neondatabase/serverless` import is aliased to the entry point | compat suite (aliased) |
+| drizzle `neon-serverless`                     | yes          | `Pool` from `@surrealdb/pg/neon`, import aliased as above                                                    | compat suite (aliased)                                                                   |
 | drizzle `mysql2`                              | yes          | `@surrealdb/mysql` promise pool, `query` and `execute`                                                       | compat suite                                                                             |
-| drizzle `planetscale-serverless`              | no           | hard `instanceof` on PlanetScale's `Client`                                                                  | none                                                                                     |
+| drizzle `planetscale-serverless`              | yes          | `Client` from `@surrealdb/mysql/planetscale`; `@planetscale/database` aliased to it so the `instanceof` check passes | compat suite (aliased)                                                              |
 | `@prisma/adapter-pg`                          | yes          | `new pg.Pool({ Client })` from the real `pg` with our `Client`; needs real `pg` installed                    | compat suite, Prisma client queries and transactions                                     |
 | `@prisma/adapter-neon`, `adapter-planetscale` | no           | construct vendor classes themselves                                                                          | none                                                                                     |
 | Prisma MySQL driver adapter                   | later        | not yet read; candidate for a second pass                                                                    | none                                                                                     |
@@ -332,6 +332,15 @@ Behaviour:
 - `@surrealdb/mysql/callback` provides a callback pool (`getConnection(cb)`, `connection.query(sql, params, cb)`, `end(cb)`) because kysely's `MysqlDialect` uses the callback API and tests the OK-packet shape `insertId` plus `affectedRows`.
 - Not provided: streaming (`.stream()`), `LOAD DATA LOCAL`, `COM_CHANGE_USER`, SSL options (TLS comes from the URL scheme).
 
+### 8.4 Vendor drop-in entry points
+
+`@surrealdb/pg/neon` and `@surrealdb/mysql/planetscale` are thin shapes over the native layers, written from the vendors' documented public API.
+
+- `neon(url, options)` builds an `HttpTransport` and `SqlSession` from the same `resolveConfig` as the rest of the package, so the namespace comes from `?ns=` and credentials from the URL, with `authToken` mapped to a bearer credential. A query is a lazy thenable (`NeonQueryPromise`); `transaction` sends one atomic `pgsql` call with one entry and one `vars` object per query. Results go through the node-postgres text parsers of the compatibility layer (`valueMode: "text"`), which is what Drizzle's parser overrides rely on. Errors are `NeonDbError`, a `DatabaseError` subclass.
+- `neonConfig` is read when a request or client is made: `fetchFunction` and `fetchEndpoint` are applied by wrapping `fetch` given to the transport, and `webSocketConstructor` by the `Client` and `Pool` subclasses of the entry point. The remaining fields are accepted and ignored. An atomic call carries no isolation level or access mode, so `readOnly` and `Serializable` are refused rather than ignored.
+- The PlanetScale `Client` and `Connection` wrap the native `connect()` client. Arguments are bound as parameters (`?` and `:name` rewritten to positional markers), results are requested with `bigint: "string"` and `dateStrings`, and each value is passed to `cast` as text with a Vitess type name derived from the protocol type. `transaction(fn)` is the native `begin`, so it needs a WebSocket session.
+- Drizzle's neon and planetscale drivers import the vendors' packages by name and check their classes. The entry points do not shadow those names; applications alias them in the bundler, and the compat suites do the same in `vitest.config.ts`. No vendor package is a dependency of this repository.
+
 ## 9. Repository and tooling
 
 Matched to surrealdb.js where it makes sense, with deviations listed.
@@ -352,7 +361,7 @@ CI (GitHub Actions, actions pinned by SHA like surrealdb.js): `check` (biome, ts
 
 - Runtime: none for the default JSON path. `@surrealdb/cbor` (allowed) only behind the `/cbor` entry.
 - Optional peers: `pg` (only for the `new pg.Pool({ Client })` path), nothing for mysql.
-- Dev: biome, typescript, tsup, vitest, size-limit with `@size-limit/file`, `@types/node`; for compat tests only: `pg`, `mysql2`, `drizzle-orm`, `kysely`, `@prisma/client` with `@prisma/adapter-pg` and the Prisma CLI, and `@neondatabase/serverless` for the stretch neon-http check. Prisma's CLI downloads schema engines, so that suite is opt-in and runs in the integration job only.
+- Dev: biome, typescript, tsup, vitest, size-limit with `@size-limit/file`, `@types/node`; for compat tests only: `pg`, `mysql2`, `drizzle-orm`, `kysely`, `@prisma/client` with `@prisma/adapter-pg` and the Prisma CLI, and no vendor package: the neon and planetscale suites alias the vendors' names to the entry points. Prisma's CLI downloads schema engines, so that suite is opt-in and runs in the integration job only.
 
 ## 11. Test strategy
 
@@ -367,7 +376,7 @@ The integration binary is not built by this repo's CI by default; the job downlo
 
 Ideas, not code:
 
-- From `@neondatabase/serverless`: the node-postgres-compatible `Client` and `Pool` over a WebSocket transport; the `neon()` one-shot function with tagged-template, `query(text, params, opts)` and `transaction([...])` forms; lazy thenable queries that a transaction can collect; `arrayMode` and `fullResults`; per-call, per-transaction and per-client option layering; an injectable `fetch` and WebSocket constructor; `authToken` as a string or async function; the browser warning; and `neon()`-shaped client surface for drizzle's `neon-http`.
+- From `@neondatabase/serverless`: the node-postgres-compatible `Client` and `Pool` over a WebSocket transport; the `neon()` one-shot function with tagged-template, `query(text, params, opts)` and `transaction([...])` forms; lazy thenable queries that a transaction can collect; `arrayMode` and `fullResults`; per-call, per-transaction and per-client option layering; an injectable `fetch` and WebSocket constructor; `authToken` as a string or async function; the browser warning; and the `neon()`-shaped client surface used by drizzle's `neon-http`.
 - From `@planetscale/database`: the `transaction(fn)` callback helper with automatic commit and rollback; a per-field `cast` hook with documented defaults and lossless 64-bit and decimal handling; the typed `ExecutedQuery` metadata idea (`time`, `size`); the distinct error type for non-database replies; and rejecting removed call forms loudly.
 - From the `surrealdb` JS SDK: authentication shapes, token refresh, reconnect option names and backoff, the idea of a thin engine interface over HTTP and WebSocket.
 
@@ -379,13 +388,14 @@ Built and covered by tests:
 - `@surrealdb/pg` native API (`connect`, template, `query`, `execute`, `batch`, `begin`, `surql`, `live`, `describe`, `capabilities`, `withDatabase`, `raw`, `vector`), native and text value decoding, `RecordId`.
 - `@surrealdb/pg` node-postgres layer (`Client`, `Pool`, `types`, `DatabaseError`-shaped errors).
 - `@surrealdb/mysql` native API and the mysql2 promise and callback layers.
+- The Neon drop-in (`@surrealdb/pg/neon`) and the PlanetScale drop-in (`@surrealdb/mysql/planetscale`), with Drizzle `neon-http`, `neon-serverless` and `planetscale-serverless` suites against the simulators.
 
 Differences from the design above, to be closed or recorded:
 
 - The option for how user and password are presented over HTTP is `authMode: "basic" | "token"`.
 - Access tokens over WebSocket are renewed by signing in again with the stored credentials before expiry; the `refresh` RPC is not used.
 - CBOR (`codec: "cbor"` and the `/cbor` entry) is not built; JSON is the only codec.
-- Not built yet: `listenLive`, `sql.use()`, the `rid` template helper, interval helpers and the `Interval` type, the `neon()`-shaped function for drizzle `neon-http`, a `Cursor`, a browser warning when credentials appear in browser code.
+- Not built yet: `listenLive`, `sql.use()`, the `rid` template helper, interval helpers and the `Interval` type, a `Cursor`, a browser warning when credentials appear in browser code.
 - Native MySQL value decoding is provisional until the instance documents MySQL value encodings.
 - `begin` with an isolation level or read-only mode uses the RPC `begin` method and the `txn` envelope, because the instance recognises only a bare `BEGIN` or `START TRANSACTION`. Isolation levels are `snapshot` and `serializable`; the standard weaker levels run as snapshot.
 - Atomic calls refuse session settings over HTTP, and results carry `committed` for atomic calls.
@@ -394,7 +404,7 @@ Differences from the design above, to be closed or recorded:
 ## 14. Decisions needed from the user
 
 1. Value codec dependency. Recommendation: JSON by default with zero runtime dependencies (the contract's value table makes JSON fully typed through `columns[].type`), CBOR optional through `@surrealdb/cbor` behind a separate entry. Do not depend on `@surrealdb/sqon` (which the current `surrealdb` SDK uses): it bundles text, flatbuffer and shaped codecs that cost edge bundle size. `@surrealdb/cbor` is published only as 2.0.0-alpha versions (`latest` is alpha.1, the SDK pins alpha.4); confirm which to pin.
-2. Neon and PlanetScale adapters. Recommendation: do not chase drizzle `neon-serverless`, drizzle `planetscale-serverless` or Prisma's Neon and PlanetScale adapters, which hard-code vendor classes. Support drizzle `neon-http` through a `neon()`-shaped function as a stretch goal only.
+2. Neon and PlanetScale adapters. Decided: ship `@surrealdb/pg/neon` and `@surrealdb/mysql/planetscale` as drop-ins, with the vendors' package names aliased by the application for Drizzle. Prisma's Neon and PlanetScale adapters, which construct vendor classes, stay unsupported.
 3. LISTEN and NOTIFY. Recommendation: no emulation in v0; native `live()` only, plus the explicit `listenLive` bridge. An engine-side mapping is separate work.
 4. Package manager. The brief allows pnpm or npm workspaces; surrealdb.js uses bun. Recommendation: bun workspaces, matching surrealdb.js (the lockfile is `bun.lock`).
 5. `pg` as an optional peerDependency of `@surrealdb/pg`, used only by the `new pg.Pool({ Client })` path and never imported by the package. This is package metadata outside the allowed dependency set. Drizzle's node-postgres driver imports `pg` itself, so Drizzle and Prisma users must install `pg` regardless; the README says so.
