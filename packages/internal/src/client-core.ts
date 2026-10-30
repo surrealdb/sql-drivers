@@ -203,6 +203,9 @@ export function createClientCore<Result, Column, Options extends CoreQueryOption
                 return { text: s.text, vars: buildVars(s.params ?? []) };
             });
             const merged = { ...defaults, ...batchOptions } as Options & BatchOptionsBase;
+            if (batchOptions.atomic === false && (merged.isolation || merged.readOnly)) {
+                throw new TypeError("`isolation` and `readOnly` apply to atomic batches only");
+            }
             const session = await oneShot();
             const response = await session.run(
                 entries,

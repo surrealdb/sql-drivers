@@ -290,7 +290,9 @@ export class PgliteEngine {
                         transaction: { status: this.#status },
                     };
                 }
-                const level = options?.isolation ? ` ISOLATION LEVEL ${options.isolation}` : "";
+                const isolation =
+                    options?.isolation === "snapshot" ? "repeatable read" : options?.isolation;
+                const level = isolation ? ` ISOLATION LEVEL ${isolation}` : "";
                 const mode = options?.readOnly ? " READ ONLY" : "";
                 await this.#runOne(`BEGIN${level}${mode}`, undefined, undefined, undefined);
             }

@@ -305,6 +305,14 @@ export function neon<ArrayMode extends boolean = false, FullResults extends bool
             }
         }
         if (queries.length === 0) return [];
+        for (const q of queries) {
+            const text = q.parameterizedQuery.query.replace(/'(?:[^']|'')*'|"(?:[^"]|"")*"/g, "");
+            if (/;\s*\S/.test(text)) {
+                throw new TypeError(
+                    "Each query of a transaction must be a single statement; send several as separate queries",
+                );
+            }
+        }
         const base = { ...options, ...txnOpts };
         const session = sessionFor(base);
         const response = await session.run(

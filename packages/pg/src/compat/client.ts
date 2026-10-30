@@ -284,6 +284,11 @@ export class Client extends Emitter {
             { rowMode: "array", valueMode: "text" },
             call,
         );
+        if (/^\s*(begin|start)\b/i.test(config.text) && response.transaction.status === "idle") {
+            throw new Error(
+                "The server accepted the transaction statement without opening a transaction",
+            );
+        }
         const results = toQueryResults(response, config);
         return results.length === 1 ? results[0] : results.length === 0 ? emptyResult() : results;
     }
