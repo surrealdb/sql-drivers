@@ -60,6 +60,23 @@
             "name": "@surrealdb/mysql callback pool",
             "path": "packages/mysql/dist/callback.js",
             "limit": "13 kB"
+        },
+        {
+            "name": "@surrealdb/pg neon (tree-shaken neon)",
+            "path": "packages/pg/dist/neon.js",
+            "import": "{ neon }",
+            "limit": "14 kB"
+        },
+        {
+            "name": "@surrealdb/pg neon (Pool and Client)",
+            "path": "packages/pg/dist/neon.js",
+            "import": "{ Pool, Client, neonConfig }",
+            "limit": "14 kB"
+        },
+        {
+            "name": "@surrealdb/mysql planetscale",
+            "path": "packages/mysql/dist/planetscale.js",
+            "limit": "13 kB"
         }
     ]
 }

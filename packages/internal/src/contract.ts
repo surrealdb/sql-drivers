@@ -37,6 +37,8 @@ export interface WireStatement {
     columns?: WireColumn[];
     rows?: unknown[];
     error?: WireError;
+    /** An entry of an atomic call that did not commit: it ran and was rolled back */
+    rolled_back?: boolean;
 }
 
 export type TransactionStatus = "idle" | "active" | "failed";
@@ -52,6 +54,8 @@ export interface SqlCallOptions {
     rowMode?: "object" | "array";
     valueMode?: "native" | "text";
     atomic?: boolean;
+    isolation?: string;
+    readOnly?: boolean;
 }
 
 export type SqlMethod = "pgsql" | "mysql";

@@ -13,6 +13,17 @@ const alias = {
     "@surrealdb/mysql": fileURLToPath(new URL("./packages/mysql/src", import.meta.url)),
 };
 
+// Drizzle's neon and planetscale drivers import the vendors' packages by name; the compat suites
+// resolve those names to the drop-in entry points of this repository.
+const vendorAlias = {
+    "@neondatabase/serverless": fileURLToPath(
+        new URL("./packages/pg/src/neon/index.ts", import.meta.url),
+    ),
+    "@planetscale/database": fileURLToPath(
+        new URL("./packages/mysql/src/planetscale/index.ts", import.meta.url),
+    ),
+};
+
 export default defineConfig({
     test: {
         projects: [
@@ -21,11 +32,12 @@ export default defineConfig({
                 test: { name: "unit", include: ["packages/*/test/unit/**/*.test.ts"] },
             },
             {
-                resolve: { alias },
+                resolve: { alias: { ...vendorAlias, ...alias } },
                 test: {
                     name: "compat",
                     include: ["packages/*/test/compat/**/*.test.ts"],
                     testTimeout: 30_000,
+                    server: { deps: { inline: ["drizzle-orm"] } },
                 },
             },
             {

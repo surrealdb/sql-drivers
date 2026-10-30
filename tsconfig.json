@@ -14,7 +14,9 @@
         "paths": {
             "@surrealdb/sql-internal/testing": ["./packages/internal/src/testing"],
             "@surrealdb/sql-internal": ["./packages/internal/src"],
+            "@surrealdb/pg/neon": ["./packages/pg/src/neon"],
             "@surrealdb/pg": ["./packages/pg/src"],
+            "@surrealdb/mysql/planetscale": ["./packages/mysql/src/planetscale"],
             "@surrealdb/mysql/callback": ["./packages/mysql/src/compat/callback.ts"],
             "@surrealdb/mysql": ["./packages/mysql/src"]
         }

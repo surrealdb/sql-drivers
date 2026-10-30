@@ -17,6 +17,7 @@ For native drivers over TCP (`mysql2`, and others), use the MySQL wire listener 
 - [SurrealDB extras](#surrealdb-extras)
 - [Connection](#connection)
 - [mysql2 compatibility](#mysql2-compatibility)
+- [PlanetScale drop-in](#planetscale-drop-in)
 - [Drizzle and Kysely](#drizzle-and-kysely)
 - [Runtimes](#runtimes)
 - [Exports](#exports)
@@ -272,6 +273,55 @@ await pool.end();
 - **Pool.** `getConnection`, `releaseConnection`, `query`, `execute`, `end`, and the events `acquire`, `connection`, `release` and `enqueue`. `connectionLimit` defaults to 10. Pool `query` and `execute` run over stateless HTTP when the transport is `auto`; connections from `getConnection()` are WebSocket sessions. `release()` rolls back an open transaction before a connection is reused.
 - **Config.** `uri`, `host`, `port`, `user`, `password`, `database`, `ssl`, `connectionLimit`, `bigNumberStrings`, `dateStrings`, `decimalNumbers`, `typeCast`, plus any option from [Connection](#connection). `supportBigNumbers`, `waitForConnections` and `multipleStatements` are accepted and have no effect: `BIGINT` is exact beyond the safe range by default, and a text may always hold several statements. With `host` and `port` and no `ssl` the client uses `http`; with `ssl` it uses `https`.
 
+## PlanetScale drop-in
+
+`@surrealdb/mysql/planetscale` has the surface of `@planetscale/database`, so code written for PlanetScale moves over by changing the import:
+
+```diff
+- import { Client, connect, cast, format } from "@planetscale/database";
++ import { Client, connect, cast, format } from "@surrealdb/mysql/planetscale";
+```
+
+```ts
+import { Client } from "@surrealdb/mysql/planetscale";
+
+const client = new Client({ url: "mysql://root:root@abc123.surrealdb.earth/app?ns=prod" });
+
+const r = await client.execute("SELECT * FROM person WHERE name = ? AND age > :age", ["Tobie"]);
+const named = await client.execute("SELECT * FROM person WHERE age > :age", { age: 18 });
+const rows = await client.execute("SELECT id, name FROM person", [], { as: "array" });
+
+await client.transaction(async (tx) => {
+    await tx.execute("UPDATE account SET balance = balance - ? WHERE id = ?", [10, 1]);
+    await tx.execute("UPDATE account SET balance = balance + ? WHERE id = ?", [10, 2]);
+});
+```
+
+- Exports: `Client`, `connect`, `Connection`, `cast`, `format`, `DatabaseError`, `UnsupportedOnTransportError`, and the types `Config`, `ExecutedQuery`, `ExecuteOptions`, `Field`, `Cast`, `Transaction`, `Row`.
+- `Config` takes `url` or `host`, `username` and `password`, plus `fetch`, `format` and `cast` as in the PlanetScale driver. It also takes `namespace`, `database`, `transport`, `WebSocket`, `headers` and `timeout`. The connection string follows the rules in [Connection](#connection): PlanetScale has no namespaces, so the SurrealDB namespace comes from the `ns` parameter of the URL or the `namespace` option, and the path is the database.
+- `execute(query, args, options)` takes `?` placeholders with an array and `:name` placeholders with an object. Arguments are bound as parameters on the instance, not interpolated, so `statement` in the result is the query text with `?` markers. An array argument expands to a list, an empty one to `NULL`, and an object to JSON text. The `format` option of `Config` switches to client-side rendering, and the `format(query, values)` function is exported for that use.
+- `as: "object"` (default) or `"array"` selects the row shape. Every value reaches `cast` as text, as on PlanetScale, and the default `cast` returns numbers for integer and float types up to 32 bits, parses JSON, and leaves 64-bit integers, decimals and dates as text. A per-call `cast` replaces the one in `Config`.
+- `ExecutedQuery` has `headers`, `types` (Vitess type names such as `INT32` and `VARCHAR`, derived from the protocol type), `fields`, `rows`, `rowsAffected` (0 for a query which returns rows), `insertId` as text (`"0"` when there is none), `size`, `statement` and `time` in seconds. Fields carry no column length, character set or flags; those are zero or null.
+- Failures throw `DatabaseError` with `body.message`, `body.code` (a Vitess-style code derived from the MySQL error number, `UNKNOWN` when there is none), `status` 400, and also `errno` and `sqlState`.
+- `transaction(fn)` runs on a WebSocket session opened for the call, and commits when `fn` resolves or rolls back when it throws. PlanetScale offers this over HTTP; here HTTP is stateless, so a client configured with `transport: "http"` throws `UnsupportedOnTransportError`.
+- `refresh()` resolves without a request, since HTTP calls keep no session.
+
+To use Drizzle's `planetscale-serverless` driver, which checks `instanceof Client` against `@planetscale/database`, point that name at this entry point in your bundler instead of installing PlanetScale's package:
+
+```ts
+// vite.config.ts, or the equivalent alias of esbuild, webpack, tsconfig paths, wrangler.toml [alias]
+resolve: { alias: { "@planetscale/database": "@surrealdb/mysql/planetscale" } }
+```
+
+```ts
+import { drizzle } from "drizzle-orm/planetscale-serverless";
+import { Client } from "@surrealdb/mysql/planetscale";
+
+const db = drizzle(new Client({ url: process.env.DATABASE_URL }));
+```
+
+Drizzle transactions and savepoints run on the WebSocket session.
+
 ## Drizzle and Kysely
 
 Drizzle:
@@ -310,12 +360,13 @@ Do not put database credentials in browser code that real users can read. Use a 
 - Native: `connect`, `decodeMysql`, `TYPE_NAMES`, `settingStatements`, and the types `SqlClient`, `Queryable`, `Result`, `Column`, `QueryOptions`, `BatchOptions`, `TransactionOptions`, `LiveMessage`, `Capabilities`, `MysqlConnectOptions`, `MysqlDecodeOptions`.
 - mysql2 layer: `createPool`, `createConnection`, `Pool`, `Connection`, `MysqlError`, `prepare`, `escapeId`, `toConnectOptions`, and the types `ConnectionConfig`, `PoolConnection`, `QueryConfig`, `QueryReply`, `ResultSetHeader`, `FieldPacket`, `TypeCast`, `TypeCastField`.
 - `@surrealdb/mysql/callback`: `createPool`, `createConnection`, `CallbackPool`, `CallbackConnection`.
+- `@surrealdb/mysql/planetscale`: see [PlanetScale drop-in](#planetscale-drop-in).
 - Errors: `SurrealSqlError`, `StatementError`, `CapabilityDeniedError`, `AuthError`, `RpcError`, `ConnectionError`, `ConnectionLostError`, `AbortError`, `TimeoutError`, `UnknownResponseError`, `UnsupportedOnTransportError`.
 
 ## Limits
 
 - Not provided in the mysql2 layer: streaming (`.stream()`), `LOAD DATA LOCAL`, `COM_CHANGE_USER`, SSL options (TLS follows the URL scheme), named placeholders, and `nestTables`.
-- Prisma's MySQL driver adapters have not been assessed. PlanetScale's `@planetscale/database` adapters (Drizzle `planetscale-serverless`, Prisma, Kysely PlanetScale) check the vendor's own classes and are not supported.
+- Prisma's MySQL driver adapters have not been assessed. `@prisma/adapter-planetscale` and Kysely's PlanetScale dialect construct the vendor's own classes and are not supported. Drizzle `planetscale-serverless` works through the [PlanetScale drop-in](#planetscale-drop-in).
 - Not built yet: CBOR transport and a browser warning for credentials.
 - The native MySQL value encoding and the shapes of `query_cancel` and `describe` replies are provisional until the instance documents them.
 

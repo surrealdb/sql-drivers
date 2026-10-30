@@ -26,4 +26,13 @@ describe.skipIf(!built)("built output of @surrealdb/pg", () => {
         const mod = await import(join(dist, "index.js"));
         expect(mod.Pool.name).toBe("Pool");
     });
+
+    it("exports the Neon drop-in entry point with its class names", async () => {
+        const mod = await import(join(dist, "neon.js"));
+        expect(mod.Pool.name).toBe("Pool");
+        expect(mod.Client.name).toBe("Client");
+        expect(typeof mod.neon).toBe("function");
+        expect(typeof mod.neonConfig).toBe("object");
+        expect(mod.NeonDbError.name).toBe("NeonDbError");
+    });
 });

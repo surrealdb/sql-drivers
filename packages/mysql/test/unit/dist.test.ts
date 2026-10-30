@@ -26,4 +26,14 @@ describe.skipIf(!built)("built output of @surrealdb/mysql", () => {
         const mod = await import(join(dist, "index.js"));
         expect(mod.Pool.name).toBe("Pool");
     });
+
+    it("exports the PlanetScale drop-in entry point with its class names", async () => {
+        const mod = await import(join(dist, "planetscale.js"));
+        expect(mod.Client.name).toBe("Client");
+        expect(mod.Connection.name).toBe("Connection");
+        expect(mod.DatabaseError.name).toBe("DatabaseError");
+        expect(typeof mod.connect).toBe("function");
+        expect(typeof mod.format).toBe("function");
+        expect(typeof mod.cast).toBe("function");
+    });
 });

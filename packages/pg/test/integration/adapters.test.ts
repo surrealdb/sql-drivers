@@ -61,10 +61,7 @@ describe.skipIf(!binary)("adapters against a server", () => {
             ]);
         });
 
-        // Known engine issue: RETURNING lists its columns in name order rather than projection
-        // order, and text-mode integers carry a sized-number suffix such as "30i32". Drizzle reads
-        // RETURNING rows by position, so it maps them wrongly until the engine is fixed.
-        it.fails("reads RETURNING rows by projection order", async () => {
+        it("reads RETURNING rows by projection order", async () => {
             const db = drizzle({ client: pool as never });
             const inserted = await db.insert(users).values({ name: "Ret", age: 1 }).returning();
             expect(inserted[0]).toMatchObject({ name: "Ret", age: 1, active: true });

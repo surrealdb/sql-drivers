@@ -17,6 +17,7 @@ For native drivers over TCP (`pg`, and others), use the PostgreSQL wire listener
 - [SurrealDB extras](#surrealdb-extras)
 - [Connection](#connection)
 - [node-postgres compatibility](#node-postgres-compatibility)
+- [Neon drop-in](#neon-drop-in)
 - [Drizzle, Kysely and Prisma](#drizzle-kysely-and-prisma)
 - [Runtimes](#runtimes)
 - [Exports](#exports)
@@ -297,6 +298,53 @@ await pool.end();
 - **`pool.query()`** runs over stateless HTTP when the transport is `auto`, so a cold edge isolate needs no handshake. Pooled clients from `pool.connect()` are WebSocket sessions. `release()` rolls back an open transaction before a client is reused, and drops a client released with an error.
 - **`DatabaseError`.** Statement failures raise an error with `code` (the SQLSTATE), `severity`, `message` and `position`.
 
+## Neon drop-in
+
+`@surrealdb/pg/neon` has the surface of `@neondatabase/serverless`, so code written for Neon moves over by changing the import:
+
+```diff
+- import { neon, Pool, Client, neonConfig } from "@neondatabase/serverless";
++ import { neon, Pool, Client, neonConfig } from "@surrealdb/pg/neon";
+```
+
+```ts
+import { neon } from "@surrealdb/pg/neon";
+
+const sql = neon("postgres://root:root@abc123.surrealdb.earth/app?ns=prod");
+
+const rows = await sql`SELECT * FROM person WHERE name = ${name}`;
+const one = await sql.query("SELECT * FROM person WHERE id = $1", [id], { fullResults: true });
+const [created, total] = await sql.transaction([
+    sql`INSERT INTO person (name) VALUES (${name}) RETURNING id`,
+    sql`SELECT count(*) AS n FROM person`,
+]);
+```
+
+- `neon(connectionString, options)` takes `arrayMode`, `fullResults`, `authToken` (a string or a function), `fetchOptions`, `fetchFunction`, `isolationLevel`, `readOnly` and `deferrable`. Calling `sql(text, params)` as a plain function throws, as in Neon; use `sql.query(text, params, options)`. `sql.unsafe(text)` splices trusted text into a template.
+- Queries are lazy thenables: they are sent when awaited, once, or when passed to `sql.transaction`. A transaction is one atomic HTTP call; it also takes a function of a query builder, which is used like `sql`: `sql.transaction((txn) => [txn.query(text, params)])`. Each query in it must be one statement.
+- `fullResults` returns `{ fields, command, rowCount, rows, rowAsArray, viaNeonFetch }`. Values are parsed with the node-postgres type parsers, so `types.setTypeParser` applies, as it does with Neon.
+- A failed statement throws `NeonDbError`, a `DatabaseError` carrying `code` (the SQLSTATE), `severity`, `position` and the other node-postgres fields.
+- The connection string follows the rules in [Connection](#connection). Neon has no namespaces, so the SurrealDB namespace comes from the `ns` (or `namespace`) parameter; the path is the database. `sslmode` and similar parameters are ignored, and TLS follows the host (off for loopback only).
+- `neonConfig` is honoured for `fetchFunction`, `fetchEndpoint` (a URL, or a function of host and port; the target must speak the RPC contract, not Neon's `/sql` protocol) and `webSocketConstructor` (used by the `Client` and `Pool` of this entry point). It accepts and ignores `wsProxy`, `useSecureWebSocket`, `pipelineConnect`, `pipelineTLS`, `coalesceWrites`, `forceDisablePgSSL`, `disableSNI`, `fetchConnectionCache`, `poolQueryViaFetch`, `subtls` and `rootCerts`, which describe Neon's wire protocol and proxies.
+- `isolationLevel` and `readOnly` are sent with the atomic call. `ReadUncommitted`, `ReadCommitted` and `RepeatableRead` run as `snapshot`. `deferrable` is ignored.
+- `Pool` and `Client` are the node-postgres layer above, reading their WebSocket class from `neonConfig.webSocketConstructor` unless given one. `pool.query()` runs over HTTP regardless of `neonConfig.poolQueryViaFetch`. `types`, `DatabaseError`, `escapeIdentifier` and `escapeLiteral` are exported too.
+
+To use Drizzle's `neon-http` or `neon-serverless` drivers, which import `@neondatabase/serverless` by name, point that name at this entry point in your bundler instead of installing Neon's package:
+
+```ts
+// vite.config.ts, or the equivalent alias of esbuild, webpack, tsconfig paths, wrangler.toml [alias]
+resolve: { alias: { "@neondatabase/serverless": "@surrealdb/pg/neon" } }
+```
+
+```ts
+import { drizzle } from "drizzle-orm/neon-http";
+import { neon } from "@surrealdb/pg/neon";
+
+const db = drizzle(neon(connectionString));
+```
+
+`db.batch()` becomes one atomic call. Drizzle's `neon-http` refuses interactive transactions, as it does on Neon; `neon-serverless` runs them over the WebSocket `Pool`.
+
 ## Drizzle, Kysely and Prisma
 
 Drizzle:
@@ -341,7 +389,7 @@ Notes:
 - Install `pg` for Drizzle and Prisma. Drizzle's node-postgres driver and Prisma's adapter import it themselves.
 - The adapters' types name `pg`'s classes, so pass `pool as never` where they ask for one.
 - Prisma rejects an unknown type id below 16384, so the instance must report built-in PostgreSQL type ids. This is checked against the simulator and has to be checked against a server.
-- Not supported: Drizzle `neon-serverless` and `neon-http`, and `@prisma/adapter-neon`. They construct or check the vendor's own classes.
+- Not supported: `@prisma/adapter-neon`, which constructs Neon's own classes. Drizzle `neon-http` and `neon-serverless` work through the [Neon drop-in](#neon-drop-in).
 
 ## Runtimes
 
@@ -353,12 +401,13 @@ Do not put database credentials in browser code that real users can read. Use a 
 
 - Native: `connect`, `RecordId`, `recordId`, `decodeNative`, `builtins`, `settingStatements`, and the types `SqlClient`, `Queryable`, `Result`, `Column`, `QueryOptions`, `BatchOptions`, `TransactionOptions`, `LiveMessage`, `Capabilities`, `PgConnectOptions`, `DecodeOptions`.
 - node-postgres layer: `Client`, `Pool`, `DatabaseError`, `types`, `TypeOverrides`, and the types `ClientConfig`, `PoolConfig`, `PoolClient`, `QueryConfig`, `QueryResult`, `FieldDef`.
+- `@surrealdb/pg/neon`: `neon`, `neonConfig`, `NeonDbError`, `NeonQueryPromise`, `Client`, `Pool`, `DatabaseError`, `types`, `escapeIdentifier`, `escapeLiteral`, and the types `NeonQueryFunction`, `FullQueryResults`, `HTTPQueryOptions`, `HTTPTransactionOptions`, `NeonConfig`. The package root also exports `neon`, `neonConfig` and `NeonDbError`.
 - Errors: `SurrealSqlError`, `StatementError`, `CapabilityDeniedError`, `AuthError`, `RpcError`, `ConnectionError`, `ConnectionLostError`, `AbortError`, `TimeoutError`, `UnknownResponseError`, `UnsupportedOnTransportError`.
 
 ## Limits
 
 - Not provided in the node-postgres layer: cursors, `COPY`, binary format, `LISTEN` and `NOTIFY`, and `pg-native`. Kysely streaming is therefore unavailable.
-- Not built yet: CBOR transport, a browser warning for credentials, interval helpers, and a `neon()`-shaped function.
+- Not built yet: CBOR transport, a browser warning for credentials, and interval helpers.
 - The shapes of `query_cancel` and `describe` replies are provisional until the instance documents them.
 
 ## Licence

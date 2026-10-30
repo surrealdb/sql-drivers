@@ -35,7 +35,7 @@ If you want SurrealQL and the full SurrealDB data model from JavaScript, use the
 
 ## Status
 
-The `pgsql` and `mysql` RPC methods are merged in the engine, and the integration suites for both packages run against a build of it (`b2b70df36f`, the merge of the methods): native queries over HTTP and WebSocket, atomic batches, interactive transactions with and without an isolation level, session settings and live query registration, and the Drizzle, Kysely and `pg.Pool` adapters, plus Drizzle and Kysely for MySQL.
+The `pgsql` and `mysql` RPC methods are merged in the engine, and the integration suites for both packages run against a build of the engine branch that makes the methods drop-in compatible: native queries over HTTP and WebSocket, atomic batches with isolation levels, interactive transactions opened by statement text, session settings and live query registration, `neon()` and the PlanetScale client, and the Drizzle, Kysely, Prisma and `pg.Pool` adapters, plus Drizzle and Kysely for MySQL.
 
 Some behaviours of that build differ from the contract or from PostgreSQL, and they limit what works today: `RETURNING` lists its columns in name order (which breaks Drizzle's and Prisma's `RETURNING`), text-mode integers carry a sized-number suffix, string parameters are not coerced to `jsonb`, `numeric` or large `int8` fields, and a transaction start with an isolation level is silently ignored in text. [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) lists each one, and which adapter suites pass against the simulators and against the server.
 
@@ -249,15 +249,20 @@ The compatibility layers convert `StatementError` to the shape their ecosystem e
 
 ## ORM and driver compatibility
 
-| Tool                              | Package                     | Entry point                                   |
-| --------------------------------- | --------------------------- | --------------------------------------------- |
-| node-postgres `Client` and `Pool` | `@surrealdb/pg`             | `Client`, `Pool`                              |
-| Drizzle `node-postgres`           | `@surrealdb/pg`             | `drizzle({ client: pool as never })`          |
-| Kysely `PostgresDialect`          | `@surrealdb/pg`             | `new PostgresDialect({ pool })`               |
-| Prisma `@prisma/adapter-pg`       | `@surrealdb/pg`             | `new pg.Pool({ connectionString, Client })`   |
-| mysql2 promise API                | `@surrealdb/mysql`          | `createPool`, `createConnection`              |
-| Drizzle `mysql2`                  | `@surrealdb/mysql`          | `drizzle(pool as never, { mode: "default" })` |
-| Kysely `MysqlDialect`             | `@surrealdb/mysql/callback` | `new MysqlDialect({ pool })`                  |
+| Tool                              | Package                        | Entry point                                   |
+| --------------------------------- | ------------------------------ | --------------------------------------------- |
+| node-postgres `Client` and `Pool` | `@surrealdb/pg`                | `Client`, `Pool`                              |
+| Drizzle `node-postgres`           | `@surrealdb/pg`                | `drizzle({ client: pool as never })`          |
+| Kysely `PostgresDialect`          | `@surrealdb/pg`                | `new PostgresDialect({ pool })`               |
+| Prisma `@prisma/adapter-pg`       | `@surrealdb/pg`                | `new pg.Pool({ connectionString, Client })`   |
+| mysql2 promise API                | `@surrealdb/mysql`             | `createPool`, `createConnection`              |
+| Drizzle `mysql2`                  | `@surrealdb/mysql`             | `drizzle(pool as never, { mode: "default" })` |
+| Kysely `MysqlDialect`             | `@surrealdb/mysql/callback`    | `new MysqlDialect({ pool })`                  |
+| `@neondatabase/serverless`        | `@surrealdb/pg/neon`           | `neon`, `Pool`, `Client`, `neonConfig`        |
+| Drizzle `neon-http`               | `@surrealdb/pg/neon`           | `drizzle(neon(url))`, with the import aliased |
+| Drizzle `neon-serverless`         | `@surrealdb/pg/neon`           | `drizzle({ client: pool })`, aliased          |
+| `@planetscale/database`           | `@surrealdb/mysql/planetscale` | `Client`, `connect`, `cast`, `format`         |
+| Drizzle `planetscale-serverless`  | `@surrealdb/mysql/planetscale` | `drizzle(new Client({ url }))`, aliased       |
 
 ```ts
 // Drizzle on PostgreSQL
@@ -293,7 +298,8 @@ Notes:
 - In the node-postgres layer, values travel in the dialect's text form and go through `types.getTypeParser`, so Drizzle's parser overrides (timestamps, dates, intervals as text) apply unchanged.
 - `Pool.query()` runs over HTTP when the transport is `auto`. Pooled clients from `connect()` are WebSocket sessions, and `release()` rolls back an open transaction before a client is reused.
 - Not provided: cursors, `COPY`, binary format, `LISTEN` and `NOTIFY`, `pg-native`, mysql2 streaming and `LOAD DATA LOCAL`. Kysely streaming is therefore unavailable.
-- Not supported at all: Drizzle `neon-serverless` and `planetscale-serverless`, `@prisma/adapter-neon`, `@prisma/adapter-planetscale` and Kysely's PlanetScale dialect. They construct or `instanceof`-check the vendors' own classes, so only a server speaking those vendors' protocols could satisfy them. Prisma's MySQL driver adapters have not been assessed.
+- Neon and PlanetScale code moves over by changing the import to `@surrealdb/pg/neon` or `@surrealdb/mysql/planetscale`. Drizzle's `neon-http`, `neon-serverless` and `planetscale-serverless` drivers import the vendors' packages by name and check their classes, so alias `@neondatabase/serverless` to `@surrealdb/pg/neon` and `@planetscale/database` to `@surrealdb/mysql/planetscale` in your bundler. The package READMEs show how and list what each entry point honours and ignores.
+- Not supported: `@prisma/adapter-neon`, `@prisma/adapter-planetscale` and Kysely's PlanetScale dialect, which construct the vendors' own classes. Prisma's MySQL driver adapters have not been assessed.
 
 ## Runtimes and bundle size
 

@@ -58,10 +58,16 @@ function callOptions(options?: CoreQueryOptions, base?: CallOptions): CallOption
     return { ...base, signal: options.signal, timeoutMs: options.timeout };
 }
 
-function wireOptions(options?: CoreQueryOptions & { atomic?: boolean }) {
-    const out: { rowMode?: "array"; atomic?: boolean } = {};
+function wireOptions(
+    options?: CoreQueryOptions & { atomic?: boolean; isolation?: string; readOnly?: boolean },
+) {
+    const out: { rowMode?: "array"; atomic?: boolean; isolation?: string; readOnly?: boolean } = {};
     if (options?.rowMode === "array") out.rowMode = "array";
-    if (options?.atomic) out.atomic = true;
+    if (options?.atomic) {
+        out.atomic = true;
+        if (options.isolation) out.isolation = options.isolation;
+        if (options.readOnly) out.readOnly = true;
+    }
     return out;
 }
 
@@ -117,6 +123,10 @@ export interface TransactionOptionsBase {
 
 export interface BatchOptionsBase {
     atomic?: boolean;
+    /** The isolation level of an atomic batch: snapshot, serializable or a SQL level */
+    isolation?: string;
+    /** Run an atomic batch read-only */
+    readOnly?: boolean;
     throwOnError?: boolean;
 }
 
@@ -193,6 +203,9 @@ export function createClientCore<Result, Column, Options extends CoreQueryOption
                 return { text: s.text, vars: buildVars(s.params ?? []) };
             });
             const merged = { ...defaults, ...batchOptions } as Options & BatchOptionsBase;
+            if (batchOptions.atomic === false && (merged.isolation || merged.readOnly)) {
+                throw new TypeError("`isolation` and `readOnly` apply to atomic batches only");
+            }
             const session = await oneShot();
             const response = await session.run(
                 entries,

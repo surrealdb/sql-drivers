@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-    entry: { index: "src/index.ts", compat: "src/compat/index.ts" },
+    entry: { index: "src/index.ts", compat: "src/compat/index.ts", neon: "src/neon/index.ts" },
     format: ["esm"],
     dts: false,
     clean: true,
