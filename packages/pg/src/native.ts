@@ -14,6 +14,7 @@ import {
     type StatementLike,
     settingStatements,
     toStatementError,
+    transactionOptions,
     type WireColumn,
     type WireResponse,
     type WireStatement,
@@ -50,6 +51,8 @@ export interface Result<Row = Record<string, unknown>> {
     /** Server time for the statement, as the instance reports it */
     time: string;
     transaction: "idle" | "active" | "failed";
+    /** For an atomic call: whether it committed. Entries of an uncommitted call were rolled back, whatever their status */
+    committed?: boolean;
     /** Every statement of the call in order; this result is the last of them */
     results: Result<Row>[];
 }
@@ -62,7 +65,7 @@ export interface BatchOptions extends QueryOptions {
 }
 
 export interface TransactionOptions extends QueryOptions {
-    isolation?: "read committed" | "repeatable read" | "serializable";
+    isolation?: "snapshot" | "read committed" | "repeatable read" | "serializable";
     readOnly?: boolean;
 }
 
@@ -117,17 +120,20 @@ export function buildResults(
             continue;
         }
         const rows = decodeRows(statement, rowMode, options);
-        const result: Result = {
+        const result = {
             rows: rows as Record<string, unknown>[],
             columns: (statement.columns ?? []).map(toColumn),
             command: statement.command?.tag ?? "",
             rowCount: statement.command?.rows_affected ?? rows.length,
             time: statement.time ?? "",
             transaction: response.transaction.status,
-            results,
+            ...(response.transaction.committed === undefined
+                ? {}
+                : { committed: response.transaction.committed }),
         };
-        results.push(result);
-        out.push(result);
+        Object.defineProperty(result, "results", { value: results, enumerable: false });
+        results.push(result as Result);
+        out.push(result as Result);
     }
     return out;
 }
@@ -140,12 +146,8 @@ const spec: DialectSpec<Result, Column, QueryOptions> = {
     method: "pgsql",
     placeholder,
     settingStatements,
-    beginStatement: ({ isolation, readOnly }) => {
-        const modes: string[] = [];
-        if (isolation) modes.push(`ISOLATION LEVEL ${isolation.toUpperCase()}`);
-        if (readOnly) modes.push("READ ONLY");
-        return `BEGIN ${modes.join(" ")}`.trim();
-    },
+    beginStatement: "BEGIN",
+    beginOptions: transactionOptions,
     results: (response, options) => buildResults(response, options),
     emptyResult: (transaction) => ({
         rows: [],

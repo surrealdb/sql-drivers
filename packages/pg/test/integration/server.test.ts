@@ -101,6 +101,54 @@ describe.skipIf(!binary)("@surrealdb/pg against a server", () => {
         expect(ids).toHaveLength(1);
     });
 
+    it("opens a serializable transaction through the begin method, then commits and rolls back", async () => {
+        const sql = open({ transport: "ws" });
+        await sql.begin(
+            async (tx) => {
+                await tx`INSERT INTO person (id, name, age) VALUES (${"i1"}, ${"Iso"}, ${1})`;
+            },
+            { isolation: "serializable" },
+        );
+        await expect(
+            sql.begin(
+                async (tx) => {
+                    await tx`INSERT INTO person (id, name, age) VALUES (${"i2"}, ${"Iso"}, ${2})`;
+                    throw new Error("abort");
+                },
+                { isolation: "repeatable read", readOnly: false },
+            ),
+        ).rejects.toThrow("abort");
+        const rows = await sql`SELECT id FROM person WHERE name = ${"Iso"}`;
+        expect(rows).toHaveLength(1);
+    });
+
+    it("reports an uncommitted atomic call, whatever the status of its earlier entries", async () => {
+        const sql = open({ transport: "http" });
+        const out = await sql.batch(
+            [
+                sql`INSERT INTO person (id, name, age) VALUES (${"a1"}, ${"Atomic"}, ${1})`,
+                "SELECT * FROM nope_atomic2",
+            ],
+            { throwOnError: false },
+        );
+        expect((out[0] as { committed?: boolean }).committed).toBe(false);
+        expect(await sql`SELECT id FROM person WHERE name = ${"Atomic"}`).toHaveLength(0);
+    });
+
+    it("applies session settings with every HTTP call, and refuses them with an atomic call", async () => {
+        const sql = open({ transport: "http", settings: { timezone: "UTC" } });
+        const rows = await sql.query("SHOW timezone");
+        expect(rows.rows[0]).toEqual({ timezone: "UTC" });
+        await expect(sql.batch(["SELECT 1"])).rejects.toThrow(/atomic/);
+    });
+
+    it("decodes native values by wire type", async () => {
+        const sql = open({ transport: "http" });
+        const r = await sql.query("SELECT 1 AS n, 'x' AS t, true AS b, now() AS d");
+        expect(r.rows[0]).toMatchObject({ n: 1, t: "x", b: true });
+        expect(r.rows[0].d).toBeInstanceOf(Date);
+    });
+
     it("refuses an interactive transaction when pinned to HTTP", async () => {
         await expect(open({ transport: "http" }).begin(async () => 1)).rejects.toThrow(/WebSocket/);
     });

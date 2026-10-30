@@ -35,15 +35,11 @@ If you want SurrealQL and the full SurrealDB data model from JavaScript, use the
 
 ## Status
 
-The instance side of the `pgsql` and `mysql` RPC methods is in development, so a server build that serves them has not shipped yet. Until it does, these packages are verified against contract simulators and not against a real server:
+The `pgsql` and `mysql` RPC methods are merged in the engine, and the integration suites for both packages run against a build of it (`b2b70df36f`, the merge of the methods): native queries over HTTP and WebSocket, atomic batches, interactive transactions with and without an isolation level, session settings and live query registration, and the Drizzle, Kysely and `pg.Pool` adapters, plus Drizzle and Kysely for MySQL.
 
-- Real adapter code (Drizzle, Kysely, Prisma's `adapter-pg`, `pg.Pool`) runs against a simulator of the RPC contract. The PostgreSQL simulator is a real PostgreSQL (PGlite); the MySQL one is SQLite, so the MySQL adapter suites check call forms and result shapes, not MySQL semantics.
-- Transports, auth, decoding, transactions and live queries are unit-tested with a fake `fetch` and a fake `WebSocket`.
-- The integration suites for both packages are written and skipped until a server binary is available.
+Some behaviours of that build differ from the contract or from PostgreSQL, and they limit what works today: `RETURNING` lists its columns in name order (which breaks Drizzle's and Prisma's `RETURNING`), text-mode integers carry a sized-number suffix, string parameters are not coerced to `jsonb`, `numeric` or large `int8` fields, and a transaction start with an isolation level is silently ignored in text. [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) lists each one, and which adapter suites pass against the simulators and against the server.
 
-[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) lists, per adapter, which version was read, and whether it passes against the simulator and against a server.
-
-Provisional until the instance documents them: the native value encoding for MySQL columns, and the exact shapes of `query_cancel` and `describe` replies.
+Prisma's `adapter-pg` is verified only against the simulator, because the `RETURNING` order blocks it on the server. The MySQL native value encoding is provisional until the instance documents it.
 
 ## Quick start
 

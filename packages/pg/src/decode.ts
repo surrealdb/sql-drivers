@@ -1,4 +1,5 @@
 import { fromBase64, type WireColumn, type WireType } from "@surrealdb/sql-internal";
+import { oidByName } from "./oids";
 import { RecordId } from "./record-id";
 
 export interface DecodeOptions {
@@ -22,6 +23,36 @@ function asDate(value: unknown, zoned: boolean): unknown {
     return Number.isNaN(date.getTime()) ? value : date;
 }
 
+const nameByOid = new Map<number, string>(
+    Object.entries(oidByName).map(([name, oid]) => [oid, name]),
+);
+
+/** Long PostgreSQL type names, as the instance reports them for computed columns, to the short ones. */
+const LONG_NAMES: Record<string, string> = {
+    bigint: "int8",
+    integer: "int4",
+    smallint: "int2",
+    "double precision": "float8",
+    real: "float4",
+    boolean: "bool",
+    "character varying": "varchar",
+    character: "bpchar",
+    "timestamp with time zone": "timestamptz",
+    "timestamp without time zone": "timestamp",
+    "time without time zone": "time",
+    "time with time zone": "timetz",
+};
+
+/** The short name of a wire type: from its OID when it has one, else from its name. */
+export function canonicalName(type: WireType): string {
+    if (type.oid !== undefined) {
+        const byOid = nameByOid.get(type.oid);
+        if (byOid) return byOid;
+    }
+    const name = (type.name ?? "").toLowerCase();
+    return LONG_NAMES[name] ?? name;
+}
+
 function decodeValue(
     value: unknown,
     column: WireColumn,
@@ -29,8 +60,8 @@ function decodeValue(
     type: WireType,
 ): unknown {
     if (value === null || value === undefined) return null;
-    const name = type.name ?? "";
-    const custom = options.parse?.[name];
+    const name = canonicalName(type);
+    const custom = options.parse?.[name] ?? (type.name ? options.parse?.[type.name] : undefined);
     if (custom) return custom(value, column);
 
     if (type.element) {

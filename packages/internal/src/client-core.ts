@@ -34,7 +34,16 @@ export interface DialectSpec<Result, Column, Options extends CoreQueryOptions> {
     method: SqlMethod;
     placeholder(index: number): string;
     settingStatements(settings: Record<string, string | number | boolean>): string[];
-    beginStatement(options: { isolation?: string; readOnly?: boolean }): string;
+    /** The statement which opens a transaction; it must be a control statement on its own */
+    beginStatement: string;
+    /**
+     * The options of the RPC `begin` method for a transaction with an isolation level or
+     * read-only mode, which a dialect `BEGIN` cannot carry, or undefined when there are none.
+     */
+    beginOptions(options: {
+        isolation?: string;
+        readOnly?: boolean;
+    }): Record<string, unknown> | undefined;
     /** Build the results of a response; a failed statement throws unless `throwOnError` is false */
     results(
         response: WireResponse,
@@ -44,9 +53,9 @@ export interface DialectSpec<Result, Column, Options extends CoreQueryOptions> {
     column(wire: WireColumn): Column;
 }
 
-function callOptions(options?: CoreQueryOptions): CallOptions | undefined {
-    if (!options?.signal && options?.timeout === undefined) return undefined;
-    return { signal: options.signal, timeoutMs: options.timeout };
+function callOptions(options?: CoreQueryOptions, base?: CallOptions): CallOptions | undefined {
+    if (!options?.signal && options?.timeout === undefined) return base;
+    return { ...base, signal: options.signal, timeoutMs: options.timeout };
 }
 
 function wireOptions(options?: CoreQueryOptions & { atomic?: boolean }) {
@@ -69,6 +78,7 @@ export function makeQueryable<Result, Column, Options extends CoreQueryOptions>(
     spec: DialectSpec<Result, Column, Options>,
     getSession: () => Promise<SqlSession>,
     defaults: Options,
+    base?: CallOptions,
 ): Queryable<Result, Options> {
     const run = async (text: string, params: readonly unknown[], options?: Options) => {
         const merged = { ...defaults, ...options } as Options;
@@ -77,7 +87,7 @@ export function makeQueryable<Result, Column, Options extends CoreQueryOptions>(
             text,
             buildVars(params),
             wireOptions(merged),
-            callOptions(merged),
+            callOptions(merged, base),
         );
         const built = spec.results(response, merged) as Result[];
         return built[built.length - 1] ?? spec.emptyResult(response.transaction.status);
@@ -202,27 +212,47 @@ export function createClientCore<Result, Column, Options extends CoreQueryOption
             const transport = new WsTransport(config);
             const session = new SqlSession(transport, spec.method, settings);
             const merged = { ...defaults, ...txOptions } as Options;
-            const tx = makeQueryable(spec, async () => session, merged);
             const check = (response: WireResponse) => {
                 const failed = response.statements.find((s) => s.status === "ERR");
                 if (failed) throw toStatementError(failed);
             };
+            // An isolation level or read-only mode cannot be written in a dialect BEGIN, so such a
+            // transaction is opened with the RPC method and every call carries its id
+            const rpcOptions = spec.beginOptions(txOptions);
+            let txn: string | undefined;
             try {
-                check(
-                    await session.run(
-                        spec.beginStatement(txOptions),
-                        undefined,
-                        undefined,
+                if (rpcOptions) {
+                    await transport.open();
+                    const opened = await transport.call<string | { id: string }>(
+                        "begin",
+                        [rpcOptions],
                         callOptions(merged),
-                    ),
-                );
+                    );
+                    txn = typeof opened === "string" ? opened : opened.id;
+                } else {
+                    check(
+                        await session.run(
+                            spec.beginStatement,
+                            undefined,
+                            undefined,
+                            callOptions(merged),
+                        ),
+                    );
+                }
+                const base: CallOptions | undefined = txn ? { txn } : undefined;
+                const tx = makeQueryable(spec, async () => session, merged, base);
                 try {
                     const value = await fn(tx);
-                    check(await session.run("COMMIT", undefined, undefined, callOptions(merged)));
+                    if (txn) await transport.call("commit", [txn], callOptions(merged));
+                    else
+                        check(
+                            await session.run("COMMIT", undefined, undefined, callOptions(merged)),
+                        );
                     return value;
                 } catch (error) {
                     try {
-                        await session.run("ROLLBACK");
+                        if (txn) await transport.call("cancel", [txn]);
+                        else await session.run("ROLLBACK");
                     } catch {
                         // The original error is the one that matters; a failed rollback must not mask it
                     }
