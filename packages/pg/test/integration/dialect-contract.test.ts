@@ -101,7 +101,7 @@ describe.skipIf(!binary)("the pgsql dialect contract against a server", () => {
             await code("INSERT INTO people (id, name, age) VALUES ($1, $2, $3)", [1, "dup", 1]),
         ).toBe("23505");
         expect(await code("INSERT INTO typed (id, amount) VALUES ($1, $2)", [9, "abc"])).toBe(
-            "22P02",
+            "42804",
         );
         await c.end();
     });
