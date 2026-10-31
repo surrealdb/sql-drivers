@@ -43,10 +43,20 @@ export default defineConfig({
             {
                 resolve: { alias },
                 test: {
+                    name: "conformance",
+                    include: ["packages/*/test/conformance/**/*.test.ts"],
+                    testTimeout: 30_000,
+                    hookTimeout: 60_000,
+                },
+            },
+            {
+                resolve: { alias: { ...vendorAlias, ...alias } },
+                test: {
                     name: "integration",
                     include: ["packages/*/test/integration/**/*.test.ts"],
                     testTimeout: 30_000,
                     hookTimeout: 60_000,
+                    server: { deps: { inline: ["drizzle-orm"] } },
                 },
             },
         ],

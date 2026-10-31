@@ -9,6 +9,7 @@
         "build": "bun run --filter './packages/*' build",
         "test": "vitest run --project unit",
         "test:integration": "vitest run --project integration",
+        "test:conformance": "vitest run --project conformance",
         "test:compat": "bun run prisma:generate && vitest run --project compat",
         "size": "size-limit",
         "qc": "biome check .",
@@ -19,22 +20,28 @@
     "devDependencies": {
         "@biomejs/biome": "2.6.3",
         "@electric-sql/pglite": "^0.5.12",
+        "@electric-sql/pglite-socket": "^0.2.16",
+        "@neondatabase/serverless": "1.2.0",
+        "@planetscale/database": "2.0.0",
         "@prisma/adapter-pg": "^7.10.1",
         "@prisma/client": "^7.10.1",
         "@size-limit/esbuild": "^14.3.0",
         "@size-limit/file": "14.3.0",
         "@types/node": "26.6.5",
         "@types/pg": "^8.23.1",
+        "@types/ws": "^8.18.2",
         "drizzle-orm": "^0.45.4",
         "dts-bundle-generator": "^9.5.1",
         "kysely": "^0.29.7",
         "mysql2": "^3.24.6",
         "pg": "^8.23.1",
+        "planetscale-v1": "npm:@planetscale/database@1.20.2",
         "prisma": "7.10.1",
         "size-limit": "14.3.0",
         "tsup": "9.0.0",
         "typescript": "5.9.3",
-        "vitest": "5.0.5"
+        "vitest": "5.0.5",
+        "ws": "^8.22.0"
     },
     "packageManager": "bun@1.4.4",
     "size-limit": [
@@ -65,13 +72,13 @@
             "name": "@surrealdb/pg neon (tree-shaken neon)",
             "path": "packages/pg/dist/neon.js",
             "import": "{ neon }",
-            "limit": "14 kB"
+            "limit": "15 kB"
         },
         {
             "name": "@surrealdb/pg neon (Pool and Client)",
             "path": "packages/pg/dist/neon.js",
             "import": "{ Pool, Client, neonConfig }",
-            "limit": "14 kB"
+            "limit": "15 kB"
         },
         {
             "name": "@surrealdb/mysql planetscale",

@@ -167,6 +167,13 @@ export class PgliteEngine {
             const result = await this.#db.query<unknown[]>(text, params as unknown[], {
                 rowMode: "array",
                 parsers,
+                // parameters cross as text: a bytea given as `\\x...` text passes through
+                serializers: {
+                    17: (v: unknown) =>
+                        typeof v === "string"
+                            ? v
+                            : `\\x${Buffer.from(v as Uint8Array).toString("hex")}`,
+                },
             });
             if (first === "BEGIN" || first === "START") this.#status = "active";
             else if (first === "COMMIT" || first === "ROLLBACK" || first === "END")

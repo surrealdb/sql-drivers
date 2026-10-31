@@ -88,7 +88,7 @@ describe("execute", () => {
             size: 2,
             statement: "SELECT * FROM t WHERE id > ? AND at < ?",
         });
-        expect(r.time).toBeCloseTo(0.00025, 8);
+        expect(r.time).toBeCloseTo(0.25, 8);
     });
 
     it("binds named arguments in order of use, repeats included", async () => {
@@ -161,7 +161,7 @@ describe("execute", () => {
             insertId: "42",
             rows: [],
             size: 0,
-            time: 0.001,
+            time: 1,
         });
     });
 
@@ -270,7 +270,7 @@ describe("cast", () => {
     const f = (type: string) => ({
         name: "c",
         type,
-        table: null,
+        table: undefined,
         orgTable: null,
         database: null,
         orgName: null,

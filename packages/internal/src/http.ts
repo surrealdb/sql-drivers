@@ -110,6 +110,11 @@ export class HttpTransport implements Transport {
             combined.cleanup();
         }
 
+        const responseHeaders: Record<string, string> = {};
+        response.headers?.forEach?.((value, key) => {
+            responseHeaders[key] = value;
+        });
+        const context = { statusText: response.statusText, headers: responseHeaders };
         let reply: RpcReply;
         try {
             reply = JSON.parse(text) as RpcReply;
@@ -118,6 +123,7 @@ export class HttpTransport implements Transport {
                 `Unexpected non-JSON reply (HTTP ${response.status})`,
                 response.status,
                 text,
+                context,
             );
         }
         if (reply === null || typeof reply !== "object" || (!reply.error && !("result" in reply))) {
@@ -125,6 +131,7 @@ export class HttpTransport implements Transport {
                 `Unexpected reply shape (HTTP ${response.status})`,
                 response.status,
                 text,
+                context,
             );
         }
         if (reply.error) throw mapRpcError(reply.error, method);

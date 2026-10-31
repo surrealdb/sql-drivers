@@ -22,11 +22,13 @@ export type {
 export { DatabaseError } from "../compat/index";
 export { builtins } from "../oids";
 export { TypeOverrides, types } from "../text-types";
+export { defaults, errorFields, parseIntoClientConfig, warnIfBrowser } from "./compat";
 export { type NeonConfig, neonConfig } from "./config";
 export { NeonDbError } from "./errors";
 export { escapeIdentifier, escapeLiteral } from "./escape";
 export {
     type AuthToken,
+    type ConnectionParams,
     type FullQueryResults,
     type HTTPQueryOptions,
     type HTTPTransactionOptions,
@@ -37,6 +39,7 @@ export {
     NeonQueryPromise,
     neon,
     type QueryRows,
+    SqlTemplate,
     UnsafeRawSql,
 } from "./http";
 export { Client, Pool } from "./ws";

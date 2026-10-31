@@ -18,6 +18,7 @@ const DECLARED: [RegExp, number][] = [
     [/double|real|float/i, 5],
     [/decimal|numeric/i, 246],
     [/json/i, 245],
+    [/blob/i, 252],
 ];
 
 function mysqlType(declared: string | null, sample: unknown): number {
@@ -68,7 +69,10 @@ export class SqliteMysqlEngine {
                 const raw = statement.all(...params) as unknown as unknown[][];
                 const cols = columns.map((c, i) => ({
                     name: c.name,
-                    type: { name: "text", mysql_type: mysqlType(c.type, raw[0]?.[i]) },
+                    type: {
+                        name: mysqlType(c.type, raw[0]?.[i]) === 252 ? "bytea" : "text",
+                        mysql_type: mysqlType(c.type, raw[0]?.[i]),
+                    },
                     nullable: null,
                     table: c.table,
                     column: c.column,
@@ -76,7 +80,13 @@ export class SqliteMysqlEngine {
                 const rows = raw.map((r) =>
                     valueMode === "text"
                         ? r.map(textOf)
-                        : r.map((v) => (typeof v === "bigint" ? Number(v) : v)),
+                        : r.map((v) =>
+                              typeof v === "bigint"
+                                  ? Number(v)
+                                  : v instanceof Uint8Array
+                                    ? Buffer.from(v).toString("base64")
+                                    : v,
+                          ),
                 );
                 const out =
                     rowMode === "array"

@@ -4,7 +4,7 @@ import {
     type ClientConfig,
     type PoolConfig,
 } from "../compat/index";
-import { neonConfig } from "./config";
+import { type NeonConfig, neonConfig } from "./config";
 
 function withNeonConfig<T extends ClientConfig>(config: string | T | undefined): ClientConfig {
     const options: ClientConfig =
@@ -17,6 +17,9 @@ function withNeonConfig<T extends ClientConfig>(config: string | T | undefined):
 
 /** The node-postgres compatible client, taking its WebSocket class from `neonConfig` by default. */
 export class Client extends BaseClient {
+    /** Per-client settings which fall back to the global `neonConfig`; read when the socket opens */
+    readonly neonConfig: Partial<NeonConfig> = Object.create(neonConfig);
+
     constructor(config?: string | ClientConfig) {
         super(withNeonConfig(config));
     }
