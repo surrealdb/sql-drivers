@@ -29,11 +29,11 @@ afterAll(() => {
 
 describe("drizzle planetscale-serverless on the Client of @surrealdb/mysql/planetscale", () => {
     it("is accepted by drizzle's instanceof check", () => {
-        expect(() => drizzle(client)).not.toThrow();
+        expect(() => drizzle(client as never)).not.toThrow();
     });
 
     it("inserts, selects, updates and deletes", async () => {
-        const db = drizzle(client);
+        const db = drizzle(client as never);
         await db.execute(
             sql`create table items (id integer primary key, name text not null, note text)`,
         );
@@ -58,7 +58,7 @@ describe("drizzle planetscale-serverless on the Client of @surrealdb/mysql/plane
     });
 
     it("commits a transaction, rolls back a failed one, and supports savepoints", async () => {
-        const db = drizzle(client);
+        const db = drizzle(client as never);
         await db.transaction(async (tx) => {
             await tx.insert(items).values({ id: 10, name: "t1", note: null });
             await tx
@@ -81,7 +81,7 @@ describe("drizzle planetscale-serverless on the Client of @surrealdb/mysql/plane
     });
 
     it("reports a failed statement as a DatabaseError", async () => {
-        const db = drizzle(client);
+        const db = drizzle(client as never);
         const error: any = await db.execute(sql`select * from missing`).catch((e) => e);
         expect(error.cause.name).toBe("DatabaseError");
         expect(error.cause.body.message).toMatch(/no such table/);
@@ -93,7 +93,9 @@ describe("drizzle planetscale-serverless on the Client of @surrealdb/mysql/plane
             transport: "http",
             fetch: engine.fetch,
         });
-        await expect(drizzle(http).transaction(async () => {})).rejects.toThrow(/WebSocket/);
+        await expect(drizzle(http as never).transaction(async () => {})).rejects.toThrow(
+            /WebSocket/,
+        );
     });
 
     it("builds its own client from a connection config", async () => {

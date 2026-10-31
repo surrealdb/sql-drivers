@@ -1,5 +1,5 @@
 export { UnsupportedOnTransportError } from "@surrealdb/sql-internal";
-export { type Cast, cast, type Field } from "./cast";
+export { type Cast, cast, type Field, hex } from "./cast";
 export {
     type Args,
     Client,
@@ -11,5 +11,6 @@ export {
     type ExecuteOptions,
     type Row,
     type Transaction,
+    UnknownError,
 } from "./client";
 export { format } from "./format";

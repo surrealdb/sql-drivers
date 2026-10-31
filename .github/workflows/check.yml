@@ -76,6 +76,29 @@ jobs:
             - name: Adapter suites
               run: bun run test:compat
 
+    conformance:
+        name: Vendor Conformance
+        runs-on: ubuntu-latest
+        steps:
+            - name: Install Bun
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: 1.4.4
+
+            - name: Install Node
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+              with:
+                  node-version: 24
+
+            - name: Code Checkout
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+            - name: Install dependencies
+              run: bun install --frozen-lockfile
+
+            - name: Conformance suites
+              run: bun run test:conformance
+
     size:
         name: Bundle Size
         runs-on: ubuntu-latest

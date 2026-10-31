@@ -1,4 +1,8 @@
-import type { StatementError, WireColumn } from "@surrealdb/sql-internal";
+import {
+    type StatementError,
+    UnknownResponseError,
+    type WireColumn,
+} from "@surrealdb/sql-internal";
 import {
     type Column,
     connect as connectNative,
@@ -6,7 +10,14 @@ import {
     type SqlClient,
 } from "../native";
 import { typeName } from "../types";
-import { type Cast, cast as defaultCast, type Field, textOf, vitessType } from "./cast";
+import {
+    type Cast,
+    columnShape,
+    cast as defaultCast,
+    type Field,
+    textOf,
+    vitessType,
+} from "./cast";
 import { type Args, bind } from "./format";
 
 export type { Args };
@@ -52,7 +63,7 @@ export interface ExecutedQuery<T = Row> {
     size: number;
     /** The query text as sent, with `?` markers where arguments are bound */
     statement: string;
-    /** Seconds the instance took */
+    /** Milliseconds the instance took */
     time: number;
 }
 
@@ -75,6 +86,22 @@ export class DatabaseError extends Error {
         this.body = body;
         this.errno = details.errno ?? null;
         this.sqlState = details.sqlState ?? null;
+    }
+}
+
+/** A reply which was not a database reply, as when a proxy answers in place of the instance. */
+export class UnknownError extends DatabaseError {
+    override name = "UnknownError";
+    context: {
+        status: number;
+        statusText: string;
+        body: string;
+        headers: Record<string, string>;
+    };
+
+    constructor(message: string, context: UnknownError["context"]) {
+        super(message, context.status, { code: "UNKNOWN", message });
+        this.context = context;
     }
 }
 
@@ -101,26 +128,31 @@ function makeField(
     protocolName: string,
     table: string | null,
     column: string | null,
+    nullable: boolean | null,
+    binary: boolean,
 ): Field {
+    const type = vitessType(protocolName);
+    const shape = columnShape(binary && type === "VARCHAR" ? "VARBINARY" : type, nullable);
     return {
         name,
-        type: vitessType(protocolName),
-        table,
+        type,
+        table: table ?? undefined,
         orgTable: table,
         database: null,
         orgName: column ?? name,
-        columnLength: 0,
-        charset: null,
-        flags: 0,
+        ...shape,
+        columnType: null,
     };
 }
 
-const fieldOfWire = (c: WireColumn) => makeField(c.name, typeName(c), c.table, c.column);
-const fieldOfColumn = (c: Column) => makeField(c.name, c.typeName, c.table, c.column);
+const fieldOfWire = (c: WireColumn) =>
+    makeField(c.name, typeName(c), c.table, c.column, c.nullable, c.type.name === "bytea");
+const fieldOfColumn = (c: Column) =>
+    makeField(c.name, c.typeName, c.table, c.column, c.nullable ?? null, false);
 
-const UNITS: Record<string, number> = { ns: 1e-9, µs: 1e-6, us: 1e-6, ms: 1e-3, s: 1 };
+const UNITS: Record<string, number> = { ns: 1e-6, µs: 1e-3, us: 1e-3, ms: 1, s: 1000 };
 
-function seconds(time: string, fallback: number): number {
+function milliseconds(time: string, fallback: number): number {
     const m = /^([\d.]+)\s*(ns|µs|us|ms|s)$/.exec(time);
     return m ? Number(m[1]) * UNITS[m[2]] : fallback;
 }
@@ -139,13 +171,33 @@ interface Queryable {
     }>;
 }
 
+/** `execute(query, options)`, the form of version 2 of the PlanetScale driver, which has no arguments. */
+function isOptionsOnly(args: unknown): args is ExecuteOptions {
+    if (typeof args !== "object" || args === null || Array.isArray(args)) return false;
+    const keys = Object.keys(args);
+    return (
+        keys.length > 0 &&
+        keys.every((k) => k === "as" || k === "cast") &&
+        ((args as ExecuteOptions).as === undefined ||
+            (args as ExecuteOptions).as === "array" ||
+            (args as ExecuteOptions).as === "object") &&
+        ((args as ExecuteOptions).cast === undefined ||
+            typeof (args as ExecuteOptions).cast === "function")
+    );
+}
+
 async function run<T>(
     target: Queryable,
     config: Config,
     query: string,
-    args: Args | undefined,
+    given: Args | ExecuteOptions | undefined,
     options: ExecuteOptions | undefined,
 ): Promise<ExecutedQuery<T>> {
+    let args = given as Args | undefined;
+    if (options === undefined && isOptionsOnly(given)) {
+        options = given;
+        args = undefined;
+    }
     const started = Date.now();
     const as = options?.as ?? "object";
     const convert = options?.cast ?? config.cast ?? defaultCast;
@@ -159,11 +211,19 @@ async function run<T>(
             bigint: "string",
             dateStrings: true,
             cast: (column: WireColumn, value: unknown) =>
-                convert(fieldOfWire(column), textOf(value)),
+                convert(fieldOfWire(column), value instanceof Uint8Array ? value : textOf(value)),
         });
     } catch (error) {
         if (error instanceof Error && error.name === "StatementError") {
             throw toDatabaseError(error as StatementError);
+        }
+        if (error instanceof UnknownResponseError) {
+            throw new UnknownError(`Unknown error (HTTP ${error.status})`, {
+                status: error.status,
+                statusText: error.statusText,
+                body: error.body,
+                headers: error.headers,
+            });
         }
         throw error;
     }
@@ -178,7 +238,7 @@ async function run<T>(
         insertId: String(result.insertId ?? 0),
         size: result.rows.length,
         statement: text,
-        time: seconds(result.time, (Date.now() - started) / 1000),
+        time: milliseconds(result.time, Date.now() - started),
     };
 }
 
@@ -207,7 +267,7 @@ function connectOptions(config: Config): MysqlConnectOptions {
 export interface Transaction {
     execute<T = Row>(
         query: string,
-        args?: Args,
+        args?: Args | ExecuteOptions,
         options?: ExecuteOptions,
     ): Promise<ExecutedQuery<T>>;
 }
@@ -228,7 +288,7 @@ export class Connection {
 
     async execute<T = Row>(
         query: string,
-        args?: Args,
+        args?: Args | ExecuteOptions,
         options?: ExecuteOptions,
     ): Promise<ExecutedQuery<T>> {
         return run<T>(this.#client, this.config, query, args, options);
@@ -258,7 +318,7 @@ export class Client {
 
     execute<T = Row>(
         query: string,
-        args?: Args,
+        args?: Args | ExecuteOptions,
         options?: ExecuteOptions,
     ): Promise<ExecutedQuery<T>> {
         return this.#connection.execute<T>(query, args, options);

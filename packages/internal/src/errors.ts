@@ -81,11 +81,20 @@ export class TimeoutError extends SurrealSqlError {
 export class UnknownResponseError extends SurrealSqlError {
     override name = "UnknownResponseError";
     status: number;
+    statusText: string;
     body: string;
-    constructor(message: string, status: number, body: string) {
+    headers: Record<string, string>;
+    constructor(
+        message: string,
+        status: number,
+        body: string,
+        context: { statusText?: string; headers?: Record<string, string> } = {},
+    ) {
         super(message);
         this.status = status;
+        this.statusText = context.statusText ?? "";
         this.body = body.slice(0, 4096);
+        this.headers = context.headers ?? {};
     }
 }
 
