@@ -344,7 +344,7 @@ SURREAL_BIN=/path/to/surreal bun run test:integration
 
 A binary built before the methods landed answers "Method not found", and the first integration test fails with that message instead of skipping.
 
-Continuous integration runs code quality and typecheck, unit tests, the adapter suites, and the size budgets on every pull request. A separate integration workflow runs the server suites when the repository variable `SURREAL_BIN_URL` points at a downloadable binary.
+Continuous integration runs code quality and typecheck, unit tests, the adapter suites, and the size budgets on every pull request. A separate integration workflow downloads the public `surreal` release named in `.github/surreal-version` and runs the server suites against it. Until that release is published the job passes without running them and says so in its summary.
 
 The contract simulators in `test-support/` are not a substitute for a server: one connection serves every session, so tests that hold transactions on two sessions at once are not supported, and the MySQL simulator is SQLite.
 
