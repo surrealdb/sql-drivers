@@ -49,6 +49,9 @@ jobs:
                   chmod +x "$RUNNER_TEMP/surreal-bin/surreal"
                   "$RUNNER_TEMP/surreal-bin/surreal" version
 
+            - name: Generate the Prisma client
+              run: bun run prisma:generate
+
             - name: Integration tests
               run: bun run test:integration
               env:
